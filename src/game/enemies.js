@@ -234,7 +234,7 @@ export function enemiesOfClass(cls) { return ENEMY_IDS.filter(id => ENEMIES[id].
  *
  * A single honest lever for overall lethality, separate from the threat curve.
  */
-export const DAMAGE_SCALE = 0.70;
+export const DAMAGE_SCALE = 0.52;
 
 /**
  * Per-class toughness, applied on top of each archetype's base hull.
@@ -249,8 +249,8 @@ export const CLASS_TOUGHNESS = { swarm: 8.5, mid: 5.0, heavy: 3.2, elite: 1.8 };
 export function scaleEnemy(def, threat) {
   const t = Math.max(1, threat);
   const tough = CLASS_TOUGHNESS[def.cls] ?? 2.5;
-  const hullMul = Math.pow(1.135, t - 1);
-  const dmgMul = Math.pow(1.055, t - 1);
+  const hullMul = Math.pow(1.105, t - 1);
+  const dmgMul = Math.pow(1.045, t - 1);
   const rewardMul = 1 + 0.30 * (t - 1);
   return {
     ...def,

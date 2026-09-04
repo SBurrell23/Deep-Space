@@ -52,10 +52,13 @@ function chooseNode(run, pilot) {
     // Threat appetite scales with skill, but only slightly: taking a node three
     // levels above you is meant to be a real risk, and a bot that always did it
     // died on its second jump every run and made the game look unwinnable.
+    // Prefer nodes near your own level. The old bias toward the highest
+    // affordable threat was suicidal once enemy scaling became geometric —
+    // and it is not how anyone actually plays.
     const appetite = level + 0.5 + pilot.skill * 1.5;
     const over = n.threat - appetite;
-    if (over > 0) score -= over * over * 14;
-    else score += Math.min(6, n.threat) * 3;   // prefer meaningful fights
+    if (over > 0) score -= over * over * 18;
+    else score -= Math.abs(n.threat - level) * 12;
 
     if (fresh) {
       if (n.type === 'shop') score += hullFrac < 0.75 ? 70 : 12;
@@ -68,7 +71,9 @@ function chooseNode(run, pilot) {
     // Bias outward — depth is progress. Retreat inward when badly hurt.
     const here = U.currentNode(map);
     const outward = n.ring - here.ring;
-    score += hullFrac < 0.35 ? -outward * 22 : outward * 16;
+    // Depth is progress, but not at the cost of out-levelling yourself: the
+    // map's threat gradient rises faster than a straight run outward levels you.
+    score += hullFrac < 0.35 ? -outward * 22 : outward * 6;
 
     // Break ties randomly so repeat runs don't follow identical paths.
     score += pilot.rng.float(0, 8);

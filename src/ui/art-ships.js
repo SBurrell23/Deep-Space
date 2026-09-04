@@ -7,6 +7,14 @@
  * the flagship point LEFT, and every hull is lit from the top-left so shadows
  * fall to the bottom-right.
  *
+ * The ten player hulls are the exception: they must be mirror-symmetric about
+ * their horizontal centre line (rows[y] === rows[39 - y]) so the silhouette
+ * never looks lopsided, so they carry a neutral top-down light instead - a
+ * bright ridge down the spine falling away to the rim. ship_ext_slug is the
+ * one hull that is deliberately asymmetric. Each of them opens its engine
+ * exhaust on column 0 across rows 18-21, where the renderer centres the
+ * fx_thrust flame.
+ *
  * Shared shading ramp (dark -> light): k d p 1 2 3 4 w
  * Accent ramps: e c C (ion/cyan)  o a A (amber)  x r R (red)
  *               n g G (green)     v u U (purple)
@@ -131,20 +139,20 @@ export const SHIP_ART = {
     '..............mmmmmnnnnnnnnnnnngggggggggggggggggggGk............',
     '...........nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnggggggggGk.............',
     '........kkmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmgGgkkggggggggggkk',
-    '......kk11444444444444444444444444444444444443333gkmGGGGGGGGGGww',
-    '....kkkkkkkk3333p33333p33333p33333333333333333333GknGGGGGGGGGGGk',
-    '..ggggnnnkk33333p33333p44444p44444444444444443333Gkggnk.........',
-    '.Gggggnnnkk33333p33322p22222p22222222222222222244Gkkkkk.........',
+    '....kkkk11444444444444444444444444444444444443333gkmGGGGGGGGGGww',
+    'kkkkkkkkkkkk3333p33333p33333p33333333333333333333GknGGGGGGGGGGGk',
+    'GGggggnnnkk33333p33333p44444p44444444444444443333Gkggnk.........',
+    'GGggggnnnkk33333p33322p22222p22222222222222222244Gkkkkk.........',
     'GGggggnnnkk33333p33333p33333pGGGGgggggggggGGGGGggggggggggggkk...',
     'wwGGggnnnkk43333p33333p33333pGGGwwwwwwwwwwwGGGGgggGGGGGGGGGGGkk.',
     'wwGGggnnnkk43333p33333p33333pGGGwwwwwwwwwwwGGGGgggGGGGGGGGGwwwww',
     'wwGGggnnnkk43333p33333p33333pGGGwwwwwwwwwwwGGGGgggGGGGGGGGGwwwww',
     'wwGGggnnnkk43333p33333p33333pGGGwwwwwwwwwwwGGGGgggGGGGGGGGGGGkk.',
     'GGggggnnnkk33333p33333p33333pGGGGgggggggggGGGGGggggggggggggkk...',
-    '.Gggggnnnkk33333p33322p22222p22222222222222222244Gkkkkk.........',
-    '..ggggnnnkk33333p33333p44444p44444444444444443333Gkggnk.........',
-    '....kkkkkkkk3333p33333p33333p33333333333333333333GknGGGGGGGGGGGk',
-    '......kk11444444444444444444444444444444444443333gkmGGGGGGGGGGww',
+    'GGggggnnnkk33333p33322p22222p22222222222222222244Gkkkkk.........',
+    'GGggggnnnkk33333p33333p44444p44444444444444443333Gkggnk.........',
+    'kkkkkkkkkkkk3333p33333p33333p33333333333333333333GknGGGGGGGGGGGk',
+    '....kkkk11444444444444444444444444444444444443333gkmGGGGGGGGGGww',
     '........kkmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmgGgkkggggggggggkk',
     '...........nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnggggggggGk.............',
     '..............mmmmmnnnnnnnnnnnngggggggggggggggggggGk............',
@@ -219,20 +227,20 @@ export const SHIP_ART = {
     '........k122k4222223333333333333324433333333333332221k..........',
     '.......k12k442223332233333kkkkkkkkkkkkkkk333333333221k..........',
     '......k12k42333333333223aaaaaaaaaaaaaaaaaaa33333333321k.........',
-    '.....k122333333333333332aaaoooooooooooooaaa333333333321k........',
-    '....kkkkkkkk333333333333aaAAAAAAAAAAAAAAAaa3333333333321k.......',
-    '..aaaaoookk3333333333333aaAoooooooooooooAaa43333333333321kk.....',
-    '.Aaaaaoookk333333344444kaaAAAwwwwwwwwwAAAaak444444444443211kk...',
+    '...kkk122333333333333332aaaoooooooooooooaaa333333333321k........',
+    'kkkkkkkkkkkk333333333333aaAAAAAAAAAAAAAAAaa3333333333321k.......',
+    'AAaaaaoookk3333333333333aaAoooooooooooooAaa43333333333321kk.....',
+    'AAaaaaoookk333333344444kaaAAAwwwwwwwwwAAAaak444444444443211kk...',
     'AAaaaaoookk444444444444kaaAAAwwwwwwwwwAAAaak44wwwwwww44333311k..',
     'wwAAaaoookk44aaaaaaaaaaaaaAAAwwwwwwwwwAAAaaaaaaaaaaaaaaaa33332k.',
     'wwAAaaoookkAAAAAAAAAAAAAAaAAAwwwwwwwwwAAAaAAAAAAAAAAAAAAAAAwwwww',
     'wwAAaaoookkAAAAAAAAAAAAAAaAAAwwwwwwwwwAAAaAAAAAAAAAAAAAAAAAwwwww',
     'wwAAaaoookk44aaaaaaaaaaaaaAAAwwwwwwwwwAAAaaaaaaaaaaaaaaaa33332k.',
     'AAaaaaoookk444444444444kaaAAAwwwwwwwwwAAAaak44wwwwwww44333311k..',
-    '.Aaaaaoookk333333344444kaaAAAwwwwwwwwwAAAaak444444444443211kk...',
-    '..aaaaoookk3333333333333aaAoooooooooooooAaa43333333333321kk.....',
-    '....kkkkkkkk333333333333aaAAAAAAAAAAAAAAAaa3333333333321k.......',
-    '.....k122333333333333332aaaoooooooooooooaaa333333333321k........',
+    'AAaaaaoookk333333344444kaaAAAwwwwwwwwwAAAaak444444444443211kk...',
+    'AAaaaaoookk3333333333333aaAoooooooooooooAaa43333333333321kk.....',
+    'kkkkkkkkkkkk333333333333aaAAAAAAAAAAAAAAAaa3333333333321k.......',
+    '...kkk122333333333333332aaaoooooooooooooaaa333333333321k........',
     '......k12k42333333333223aaaaaaaaaaaaaaaaaaa33333333321k.........',
     '.......k12k442223332233333kkkkkkkkkkkkkkk333333333221k..........',
     '........k122k4222223333333333333324433333333333332221k..........',
@@ -263,9 +271,9 @@ export const SHIP_ART = {
     '......kd1111111111111111k111ppvvvvppppppppppppk11kk.............',
     '.....kdp1111111111111111111k11vvvvppppppppppppppk11kk...........',
     '....kdkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkpppppk11kk.........',
-    '...kdp22222222222222222222222222222222222222222pppppk11kk.......',
-    '..kkkkkkkkkk1111111111111111111111k1111111111kkkkkkkkkkkkkk.....',
-    '.Uuuuuvvvkk1111111111111111111111111k1111111222222222222211k....',
+    '..kkdp22222222222222222222222222222222222222222pppppk11kk.......',
+    'kkkkkkkkkkkk1111111111111111111111k1111111111kkkkkkkkkkkkkk.....',
+    'UUuuuuvvvkk1111111111111111111111111k1111111222222222222211k....',
     'UUuuuuvvvkk111111111111111111111111111k1111122vvvvvvvvvv2pk11...',
     'UUuuuuvvvkk222222222222222222222222222211k112uuuuuuuuuuuuu1pkk..',
     'UUUUuuvvvkkpppppppppppp22222222222222222222k2uuuUUUUUUUUuu111dk.',
@@ -274,9 +282,9 @@ export const SHIP_ART = {
     'UUUUuuvvvkkpppppppppppp22222222222222222222k2uuuUUUUUUUUuu111dk.',
     'UUuuuuvvvkk222222222222222222222222222211k112uuuuuuuuuuuuu1pkk..',
     'UUuuuuvvvkk111111111111111111111111111k1111122vvvvvvvvvv2pk11...',
-    '.Uuuuuvvvkk1111111111111111111111111k1111111222222222222211k....',
-    '..kkkkkkkkkk1111111111111111111111k1111111111kkkkkkkkkkkkkk.....',
-    '...kdp22222222222222222222222222222222222222222pppppk11kk.......',
+    'UUuuuuvvvkk1111111111111111111111111k1111111222222222222211k....',
+    'kkkkkkkkkkkk1111111111111111111111k1111111111kkkkkkkkkkkkkk.....',
+    '..kkdp22222222222222222222222222222222222222222pppppk11kk.......',
     '....kdkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkpppppk11kk.........',
     '.....kdp1111111111111111111k11vvvvppppppppppppppk11kk...........',
     '......kd1111111111111111k111ppvvvvppppppppppppk11kk.............',
