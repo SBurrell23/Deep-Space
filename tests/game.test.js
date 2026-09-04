@@ -131,6 +131,20 @@ describe('items', () => {
     }
   });
 
+  it('gives every lingering-zone weapon its own per-tick damage', () => {
+    // `tickDamage` was split out of `damage` because a zone re-applied the
+    // impact payload nine times a second. The guard that made that safe also
+    // made a MISSING tickDamage silently deal nothing, which quietly disarmed
+    // the Vortex Launcher and the Gravity Well — a primary and a secondary the
+    // player carries from level one.
+    for (const id of WEAPON_IDS) {
+      const w = WEAPONS[id];
+      if (!w.tickRate || w.behaviour === 'beam') continue;
+      assert.greater(w.tickDamage ?? 0, 0,
+        `${id} ticks ${w.tickRate}/sec but has no tickDamage, so it does nothing`);
+    }
+  });
+
   it('keeps active abilities to Military tier and above, and rare there', () => {
     // Abilities are the loudest thing an item can carry. They are the reason a
     // blue drop is worth stopping for, which they cannot be if every grey one

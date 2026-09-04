@@ -581,6 +581,12 @@ function spawnPlayerBullet(world, { x, y, angle, wep, damageMult = 1, scale = 1 
     drift: wep.drift || 0,
     pullForce: wep.pullForce || 0,
     tickRate: wep.tickRate || 0,
+    // A lingering zone needs its own per-tick number. Reusing `damage` meant
+    // the impact payload was re-applied nine times a second to everything
+    // inside the radius: the Singularity Bomb was landing 1,586 damage on a
+    // single target and 12,233 across a cluster, against 183/1,191 for the
+    // weakest weapon in the same slot.
+    tickDamage: wep.tickDamage ?? 0,
     tickTimer: 0,
     shieldMult: wep.shieldMult || 1,
     lifesteal: wep.lifesteal || 0,
@@ -982,13 +988,13 @@ function updateBullets(world, dt) {
         e.x -= ((e.x - b.x) / d) * f * dt;
         e.y -= ((e.y - b.y) / d) * f * dt;
       }
-      if (b.tickRate) {
+      if (b.tickRate && b.tickDamage > 0) {
         b.tickTimer -= dt;
         if (b.tickTimer <= 0) {
           b.tickTimer = 1 / b.tickRate;
           for (const e of world.enemies) {
             if (!e.dead && dist2(e.x, e.y, b.x, b.y) < b.radius * b.radius) {
-              damageEnemy(world, e, b.damage, { silent: true });
+              damageEnemy(world, e, b.tickDamage, { silent: true });
             }
           }
         }

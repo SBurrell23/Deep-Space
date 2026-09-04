@@ -24,41 +24,11 @@ const { candidatesFor, ENCOUNTER_TYPES } = await import('../src/game/encounters/
 const { ATTRIBUTE_IDS } = await import('../src/game/attributes.js');
 const { generateItem } = await import('../src/game/items.js');
 const { createPilot, pilotInput } = await import('./pilot.js');
+const { referenceShip } = await import('./refship.js');
 
 const DT = 1 / 60;
 const CAP_SECONDS = 240;
 
-/**
- * A ship as it would plausibly be at this threat: levelled to roughly the node
- * level, points spread evenly, and gear rolled at that depth. Balancing against
- * a starting ship at threat 15 would tell us nothing.
- */
-function referenceShip(threat, rng, shipId = 'kestrel') {
-  const ship = S.createShip(shipId, rng);
-  const targetLevel = Math.max(1, Math.min(20, threat));
-  for (let l = 1; l < targetLevel; l++) {
-    ship.progress.unspentPoints += 2;
-    for (let i = 0; i < 2; i++) {
-      const a = ship.progress.attributes;
-      const lowest = ATTRIBUTE_IDS.reduce((lo, id) => (a[id] < a[lo] ? id : lo), ATTRIBUTE_IDS[0]);
-      S.spendAttributePoint(ship, lowest);
-    }
-  }
-  // Gear roughly matching the depth: most slots filled, mid rarity.
-  if (threat > 2) {
-    // Utility slots included: without them the reference ship fights with no
-    // abilities at all, which is not a build any real run arrives at.
-    for (const slot of ['primary', 'secondary', 'engine', 'shield', 'reactor', 'plating', 'computer', 'utility1', 'utility2', 'utility3']) {
-      const item = generateItem(rng, { slot, level: Math.max(1, threat - 1) });
-      ship.inventory.push(item);
-      if (S.isUpgrade(ship, item)) S.equip(ship, item.uid);
-    }
-  }
-  S.recompute(ship);
-  ship.hull = ship.stats.maxHull;
-  ship.shield = ship.stats.maxShield;
-  return ship;
-}
 
 /** Play one encounter to completion. Returns duration, hull cost and outcome. */
 export function probe(encounter, threat, { skill = 0.7, seed = 'B', shipId = 'kestrel' } = {}) {

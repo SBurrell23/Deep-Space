@@ -1,6 +1,7 @@
 import { describe, it, assert } from './harness.js';
 import { RNG } from '../src/core/rng.js';
 import * as S from '../src/game/ship.js';
+import { WEAPONS, tertiaryIds } from '../src/game/weapons.js';
 import { DEFENCE_TUNING } from '../src/game/balance.js';
 import {
   createWorld, update, drainEvents, blankInput, retreat,
@@ -349,6 +350,70 @@ describe('simulation — entities', () => {
     assert.equal(world.drones.filter(d => !d.dead).length, 0,
       'drones must expire rather than escort you for the rest of the fight');
     assert.ok(ship);
+  });
+
+  it('keeps every heavy mount inside one damage band', () => {
+    // The heavy mounts are meant to be a choice between characters, not a
+    // right answer. They were not: reusing `damage` as a lingering zone's
+    // per-tick number made the Singularity Bomb land 1,586 on a single target
+    // where the Ion Storm landed 183, and 12,233 across a cluster.
+    const RANGE = {
+      id: 'tert_range', name: 'Range', type: 'combat',
+      objective: { kind: 'survive', seconds: 999 },
+      waves: [{ at: 0, spawn: [{ id: 'gunship', count: 6, formation: 'arc' }] }],
+    };
+
+    const results = {};
+    for (const id of tertiaryIds()) {
+      const rng = new RNG(`TERTBAND-${id}`);
+      const ship = S.createShip('kestrel', rng.fork('ship'));
+      ship.equipped.tertiary = {
+        uid: 't', slot: 'tertiary', pool: 'tertiary', weaponId: id,
+        name: WEAPONS[id].name, rarity: 'standard', tier: 2, level: 1,
+        power: 1, mods: {}, affixes: [], ability: null, value: 40,
+      };
+      S.recompute(ship);
+
+      const world = createWorld({ encounter: RANGE, threat: 6, ship, rng: rng.fork('world') });
+      world.player.hull = world.player.maxHull = 1e7;
+      world.player.energy = world.player.maxEnergy = 1e6;
+      run(world, 1.2);
+
+      // Pin a cluster of indestructible dummies in front of the player so the
+      // measurement is of the weapon, not of the fight around it.
+      for (const [i, e] of world.enemies.entries()) {
+        e.hull = e.maxHull = 1e9; e.shield = 0; e.armour = 0; e.shieldAura = 0;
+        e.x = world.player.x + 260; e.y = world.player.y + (i - 3) * 14;
+        e.move = 'hover'; e.fire = 'none';
+      }
+      const before = world.enemies.map(e => e.hull);
+
+      // Charge weapons fire on RELEASE; everything else on the press.
+      const def = WEAPONS[id];
+      const hold = def.behaviour === 'charge' ? (def.chargeTime || 1) + 0.1 : 0.05;
+      let t = 0;
+      run(world, 16, w => {
+        w.input.aimX = w.player.x + 260;
+        w.input.aimY = w.player.y;
+        w.input.fireTertiary = t < hold;
+        t += 1 / 60;
+        for (const e of w.enemies) { e.x = w.player.x + 260; e.vx = 0; e.vy = 0; }
+      });
+
+      const dealt = world.enemies.map((e, i) => before[i] - e.hull);
+      results[id] = { single: Math.max(...dealt), total: dealt.reduce((a, b) => a + b, 0) };
+      assert.greater(results[id].single, 100, `${id} does nothing at all`);
+    }
+
+    const singles = Object.values(results).map(r => r.single);
+    const totals = Object.values(results).map(r => r.total);
+    const spread = Math.max(...singles) / Math.min(...singles);
+    const clusterSpread = Math.max(...totals) / Math.min(...totals);
+    const worst = Object.entries(results).sort((a, b) => b[1].single - a[1].single);
+    assert.ok(spread < 3.2,
+      `single-target spread is x${spread.toFixed(1)}: ${worst.map(([k, v]) => `${k} ${v.single.toFixed(0)}`).join(', ')}`);
+    assert.ok(clusterSpread < 3.2,
+      `cluster spread is x${clusterSpread.toFixed(1)}`);
   });
 
   it('will not let a capital ship win the fight by flying away', () => {

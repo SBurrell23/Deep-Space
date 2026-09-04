@@ -145,7 +145,17 @@ export function renderCombatHud() {
 
   // Capital ships get their own readout. A run's climax sharing the same 3px
   // floating bar as a picket drone tells the player nothing is at stake.
-  const boss = world.enemies.find(e => !e.dead && (e.isBoss || e.tag === 'boss' || e.elite));
+  //
+  // The bar must track the ship the OBJECTIVE is watching, not merely the
+  // first elite in the array. On the Master Fleet flagship that distinction is
+  // the whole fight: an Elite Vanguard arrives after the tagged flagship, and
+  // a player who empties the bar labelled with its name has killed the wrong
+  // ship and nothing ends.
+  const objective = world.encounter.objective?.kind ?? 'clear';
+  const tag = objective === 'destroy' ? world.encounter.objective.tag : 'boss';
+  const isTarget = e => !e.dead && (e.tag === tag || (objective === 'boss' && e.isBoss));
+  const boss = world.enemies.find(isTarget)
+    || world.enemies.find(e => !e.dead && (e.isBoss || e.tag === 'boss' || e.elite));
   const bossBar = $('#boss-bar');
   show(bossBar, !!boss);
   if (boss) {

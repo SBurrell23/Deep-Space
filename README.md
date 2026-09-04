@@ -129,4 +129,15 @@ everything it earned did not have an economy, it had a scoreboard.
 Every one of those numbers lives in `src/game/balance.js`, with the reasoning
 next to it, and can be re-measured or swept from `tests/`.
 
+**v2.6 found the probes themselves were wrong.** All three built their reference
+ship by spending attribute points in a loop without ever raising
+`progress.level`, so the "level 20" ship they measured was formally level 1.
+Nothing level-gated was exercised — and since the heavy weapon mount unlocks at
+13, the entire tertiary class had been tuned without ever being measured. The
+builder now lives once, in `tests/refship.js`.
+
+Outstanding: deaths per fight sit at 17-19% in the threat 14-18 band against a
+target of 12%. The deaths concentrate in boss and elite encounters rather than
+in the curve, so the fix is content work, not another global knob.
+
 The soundtrack is *New Planets*, supplied by the author of this repository.

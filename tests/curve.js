@@ -21,30 +21,8 @@ const { ATTRIBUTE_IDS } = await import('../src/game/attributes.js');
 const { generateItem } = await import('../src/game/items.js');
 const { ENEMIES, scaleEnemy, CLASS_TOUGHNESS, DAMAGE_SCALE } = await import('../src/game/enemies.js');
 const { resolveWeapon, shotInterval } = await import('../src/game/weapons.js');
+const { referenceShip } = await import('./refship.js');
 
-/** The reference ship balance.js measures against, averaged over seeds. */
-function referenceShip(threat, rng, shipId = 'kestrel') {
-  const ship = S.createShip(shipId, rng);
-  const targetLevel = Math.max(1, Math.min(20, threat));
-  for (let l = 1; l < targetLevel; l++) {
-    ship.progress.unspentPoints += 2;
-    for (let i = 0; i < 2; i++) {
-      const a = ship.progress.attributes;
-      const lowest = ATTRIBUTE_IDS.reduce((lo, id) => (a[id] < a[lo] ? id : lo), ATTRIBUTE_IDS[0]);
-      S.spendAttributePoint(ship, lowest);
-    }
-  }
-  if (threat > 2) {
-    for (const slot of ['primary', 'secondary', 'engine', 'shield', 'reactor', 'plating',
-      'computer', 'utility1', 'utility2', 'utility3']) {
-      const item = generateItem(rng, { slot, level: Math.max(1, threat - 1) });
-      ship.inventory.push(item);
-      if (S.isUpgrade(ship, item)) S.equip(ship, item.uid);
-    }
-  }
-  S.recompute(ship);
-  return ship;
-}
 
 /** Sustained single-target output, ignoring energy: enough to compare curves. */
 function playerDps(ship) {

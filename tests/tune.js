@@ -28,6 +28,7 @@ const E = BALANCE.enemies;
 const D = BALANCE.defence;
 const N = BALANCE.encounters;
 const { createPilot, pilotInput } = await import('./pilot.js');
+const { referenceShip } = await import('./refship.js');
 
 const DT = 1 / 60;
 const CAP_SECONDS = 200;
@@ -40,30 +41,6 @@ const arg = (n, d) => {
 const SAMPLES = Number(arg('samples', 2));
 const SKILL = Number(arg('skill', 0.7));
 
-function referenceShip(threat, rng, shipId = 'kestrel') {
-  const ship = S.createShip(shipId, rng);
-  const target = Math.max(1, Math.min(20, threat));
-  for (let l = 1; l < target; l++) {
-    ship.progress.unspentPoints += 2;
-    for (let i = 0; i < 2; i++) {
-      const a = ship.progress.attributes;
-      const lowest = ATTRIBUTE_IDS.reduce((lo, id) => (a[id] < a[lo] ? id : lo), ATTRIBUTE_IDS[0]);
-      S.spendAttributePoint(ship, lowest);
-    }
-  }
-  if (threat > 2) {
-    for (const slot of ['primary', 'secondary', 'engine', 'shield', 'reactor', 'plating',
-      'computer', 'utility1', 'utility2', 'utility3']) {
-      const item = generateItem(rng, { slot, level: Math.max(1, threat - 1) });
-      ship.inventory.push(item);
-      if (S.isUpgrade(ship, item)) S.equip(ship, item.uid);
-    }
-  }
-  S.recompute(ship);
-  ship.hull = ship.stats.maxHull;
-  ship.shield = ship.stats.maxShield;
-  return ship;
-}
 
 /** One threat band under the current balance numbers. */
 function measure(threat) {

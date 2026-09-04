@@ -60,7 +60,7 @@ export const BALANCE = {
      * sheer exposure.
      */
     hullGrowth: 1.070,
-    damageGrowth: 1.031,
+    damageGrowth: 1.024,
 
     /**
      * A gentler opening.
