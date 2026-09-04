@@ -194,6 +194,15 @@ export function enemiesOfClass(cls) { return ENEMY_IDS.filter(id => ENEMIES[id].
  * 16,000 hull that took 80 seconds of unbroken fire to kill while shooting
  * back. Tuned per class with tests/balance.js.
  */
+/**
+ * Global multiplier on all enemy damage output.
+ *
+ * A single honest lever for overall lethality. Hull persists between nodes, so
+ * per-encounter damage compounds across a run: at 1.0 even a well-played run
+ * bled out around ring 5 having cleared a fifth of the nodes it should.
+ */
+export const DAMAGE_SCALE = 0.72;
+
 export const CLASS_TOUGHNESS = { swarm: 7.0, mid: 4.0, heavy: 2.6, elite: 1.5 };
 
 export function scaleEnemy(def, threat) {
@@ -206,10 +215,10 @@ export function scaleEnemy(def, threat) {
     ...def,
     hull: Math.round(def.hull * tough * hullMul),
     shield: Math.round((def.shield || 0) * tough * hullMul),
-    bulletDamage: (def.bulletDamage || 0) * dmgMul,
-    contact: (def.contact || 0) * dmgMul,
+    bulletDamage: (def.bulletDamage || 0) * dmgMul * DAMAGE_SCALE,
+    contact: (def.contact || 0) * dmgMul * DAMAGE_SCALE,
     explodes: def.explodes
-      ? { ...def.explodes, damage: def.explodes.damage * dmgMul }
+      ? { ...def.explodes, damage: def.explodes.damage * dmgMul * DAMAGE_SCALE }
       : null,
     xp: Math.round(def.xp * rewardMul),
     credits: Math.round(def.credits * rewardMul),

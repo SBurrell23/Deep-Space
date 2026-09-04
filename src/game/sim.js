@@ -108,7 +108,8 @@ function createPlayer(ship) {
 
     hull: ship.hull,
     maxHull: s.maxHull,
-    shield: ship.shield ?? s.maxShield,
+    // Always enter a fight with a full screen; see applyEncounterResult.
+    shield: s.maxShield,
     maxShield: s.maxShield,
     shieldTimer: 0,
     energy: s.maxEnergy,
@@ -1157,11 +1158,15 @@ function killEnemy(world, e) {
   }
 
   // Drops. Energy is common because running dry is the main failure state of a
-  // long fight; hull repair is rare so damage genuinely persists.
+  // long fight. Repair drops are the run's main attrition valve: hull persists
+  // between nodes and shops are only ~6% of the map, so at a 7% drop rate a run
+  // simply bled out around ring 5 no matter how well it was played. Amounts are
+  // a fraction of max hull so they stay relevant at level 20.
   const r = world.rng;
+  const p = world.player;
   if (r.chance(0.30)) dropPickup(world, e.x, e.y, 'energy', 12 + world.threat);
-  if (r.chance(0.07)) dropPickup(world, e.x, e.y, 'repair', 8 + world.threat * 1.5);
-  if (r.chance(0.12)) dropPickup(world, e.x, e.y, 'shield', 10 + world.threat);
+  if (r.chance(0.16)) dropPickup(world, e.x, e.y, 'repair', Math.round(p.maxHull * 0.05));
+  if (r.chance(0.14)) dropPickup(world, e.x, e.y, 'shield', Math.round(p.maxShield * 0.25));
   if (r.chance(0.22)) dropPickup(world, e.x, e.y, 'credits', Math.round(e.credits * 0.5));
   if (e.elite || e.isBoss || r.chance(0.05)) dropPickup(world, e.x, e.y, 'crate', 1);
 }

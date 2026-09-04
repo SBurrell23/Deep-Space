@@ -210,7 +210,9 @@ export class Spawner {
     if (group.id) return Array(Math.max(1, group.count || 1)).fill(group.id);
     if (group.ids) return [...group.ids];
     if (group.budget) {
-      const budget = standardBudget(this.threat) * group.budget;
+      const objective = this.encounter.objective?.kind;
+      const sustained = objective === 'survive' || objective === 'reach' ? 0.72 : 1;
+      const budget = standardBudget(this.threat) * group.budget * sustained;
       return fillBudget(this.rng, group.pool || Object.keys(ENEMIES), budget, {
         maxCount: group.maxCount || 90,
       });

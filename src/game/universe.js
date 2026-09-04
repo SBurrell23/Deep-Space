@@ -172,10 +172,13 @@ function makeNode(id, ring, angle, x, y, rng) {
 }
 
 function threatForRing(ring, rings, rng) {
-  const base = 1 + (ring / (rings - 1)) * (MAX_THREAT - 1);
+  const base = 1 + Math.pow(ring / (rings - 1), 1.28) * (MAX_THREAT - 1);
   // Variance means a ring is a band, not a wall — you can find a soft node out
   // deep, or get bitten by a hard one close in.
   const jitter = rng.int(-1, 1) + (rng.chance(0.12) ? rng.int(1, 2) : 0);
+  // The first two rings are the tutorial in all but name.
+  if (ring <= 1) return clamp(Math.round(base + Math.max(0, jitter)), 1, 2);
+  if (ring === 2) return clamp(Math.round(base + jitter), 2, 4);
   return clamp(Math.round(base + jitter), 1, MAX_THREAT);
 }
 

@@ -213,10 +213,17 @@ export function isUpgrade(ship, item) {
 // Damage and repair between encounters
 // ---------------------------------------------------------------------------
 
-/** Damage persists between nodes; this is how the run gets tense. */
+/**
+ * Fold an encounter's outcome back into the run.
+ *
+ * HULL persists — that is the run's tension and the reason repairs matter.
+ * SHIELDS do not: they are a regenerating in-fight buffer, and carrying a
+ * depleted one forward meant a fight that ended on an empty screen started the
+ * next one naked, which killed runs on their second or third node.
+ */
 export function applyEncounterResult(ship, world) {
   ship.hull = Math.max(0, Math.min(ship.stats.maxHull, world.player.hull));
-  ship.shield = Math.min(ship.stats.maxShield, world.player.shield);
+  ship.shield = ship.stats.maxShield;
   return ship;
 }
 

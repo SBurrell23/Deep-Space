@@ -49,14 +49,16 @@ function chooseNode(run, pilot) {
     const fresh = !n.cleared;
     if (!fresh) score -= 40;
 
-    // Threat appetite scales with skill: a good pilot punches up.
-    const appetite = level + 1 + pilot.skill * 3;
+    // Threat appetite scales with skill, but only slightly: taking a node three
+    // levels above you is meant to be a real risk, and a bot that always did it
+    // died on its second jump every run and made the game look unwinnable.
+    const appetite = level + 0.5 + pilot.skill * 1.5;
     const over = n.threat - appetite;
-    if (over > 0) score -= over * over * 5;
+    if (over > 0) score -= over * over * 14;
     else score += Math.min(6, n.threat) * 3;   // prefer meaningful fights
 
     if (fresh) {
-      if (n.type === 'shop') score += hullFrac < 0.65 ? 55 : 12;
+      if (n.type === 'shop') score += hullFrac < 0.75 ? 70 : 12;
       if (n.type === 'anomaly') score += 16;
       if (n.type === 'empty') score -= 12;
       if (n.type === 'boss') score += level > n.threat + 2 ? 20 : -25;
@@ -193,6 +195,8 @@ export function playRun({ shipId = 'kestrel', seed = null, skill = 0.7, verbose 
   return {
     outcome: run.phase === 'victory' ? 'victory' : run.stuck ? 'stuck' : run.timedOut ? 'timeout' : 'death',
     elapsed: run.elapsed,
+    // ~22s per node of map reading, debrief and loadout fiddling.
+    wallClock: run.elapsed + run.stats.nodesCleared * 22,
     level: run.ship.progress.level,
     ring: run.stats.deepestRing,
     nodes: run.stats.nodesCleared,
@@ -232,7 +236,8 @@ function summarise(label, results) {
   console.log(`\n  ${label}`);
   console.log(`    runs:          ${results.length}`);
   console.log(`    win rate:      ${(wins.length / results.length * 100).toFixed(0)}%`);
-  console.log(`    median length: ${mins(med(r => r.elapsed))}   (wins: ${wins.length ? mins(median(wins.map(r => r.elapsed))) : '-'})`);
+  console.log(`    combat time:   ${mins(med(r => r.elapsed))}   (wins: ${wins.length ? mins(median(wins.map(r => r.elapsed))) : '-'})`);
+  console.log(`    est wall clock:${mins(med(r => r.wallClock))}   (wins: ${wins.length ? mins(median(wins.map(r => r.wallClock))) : '-'})`);
   console.log(`    avg level:     ${avg(r => r.level).toFixed(1)}   max ${Math.max(...results.map(r => r.level))}`);
   console.log(`    avg ring:      ${avg(r => r.ring).toFixed(1)}   max ${Math.max(...results.map(r => r.ring))}`);
   console.log(`    avg nodes:     ${avg(r => r.nodes).toFixed(0)}`);

@@ -12,7 +12,7 @@ export const ATTRIBUTES = [
   {
     id: 'hull', name: 'Hull', icon: 'icon_hull', accent: '#5cf59b',
     blurb: 'Structural integrity. Damage to your hull persists between jumps.',
-    perPoint: '+30 max hull, +4% repair received',
+    perPoint: '+32 max hull, +4% repair received',
   },
   {
     id: 'shields', name: 'Shields', icon: 'icon_sys_shields', accent: '#4fe3f5',
@@ -132,7 +132,7 @@ export function deriveStats(attributes, gearMods = {}) {
   // Systems boosts the *effect* of gear, so it multiplies gear-sourced bonuses.
   const sysScale = 1 + 0.06 * (a.systems - 1);
 
-  const maxHull = Math.round((110 + 30 * a.hull + add('hull') * sysScale) * mul('hullPct'));
+  const maxHull = Math.round((150 + 32 * a.hull + add('hull') * sysScale) * mul('hullPct'));
   const maxShield = Math.round((25 + 16 * a.shields + add('shield') * sysScale) * mul('shieldPct'));
 
   return {
