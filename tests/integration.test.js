@@ -125,6 +125,54 @@ describe('run lifecycle', () => {
     }
   });
 
+  it('cancelling a brief puts you back where you jumped from', () => {
+    const run = freshRun('DECLINE');
+    const origin = run.map.currentId;
+    const next = U.reachable(run.map).find(n => !n.cleared
+      && ENCOUNTER_TYPES[n.type]?.action);
+    if (!next) return;
+
+    R.jump(run, next.id);
+    if (run.phase !== 'brief') return;
+    assert.equal(run.map.currentId, next.id, 'the jump has to happen to read the brief');
+
+    assert.equal(R.declineEncounter(run), true);
+    assert.equal(run.map.currentId, origin,
+      'declining must not leave you parked on the fight you refused');
+    assert.equal(run.node.id, origin);
+    assert.equal(run.map.nodes[next.id].cleared, false, 'and the node stays unclaimed');
+  });
+
+  it('cancelling after a multi-hop travel returns to the start of the move', () => {
+    // Built rather than played: the situation needs a corridor of cleared space
+    // with an unfought node on the far side, which a short scripted run rarely
+    // produces on its own.
+    const run = freshRun('DECLINE2');
+    const origin = run.map.currentId;
+
+    const step = U.reachable(run.map).find(n => run.map.nodes[n.id].links
+      .some(id => id !== origin
+        && run.map.nodes[id].state !== U.NODE_STATE.UNKNOWN
+        && ENCOUNTER_TYPES[run.map.nodes[id].type]?.action));
+    assert.ok(step, 'the opening map should offer a two-hop route somewhere');
+    U.markCleared(run.map, step.id);
+
+    const target = run.map.nodes[step.links.find(id => id !== origin
+      && run.map.nodes[id].state !== U.NODE_STATE.UNKNOWN
+      && ENCOUNTER_TYPES[run.map.nodes[id].type]?.action)];
+
+    const route = U.routeThroughCleared(run.map, target.id);
+    assert.ok(route && route.length > 1, 'the route should be more than one hop');
+
+    R.travelPath(run, route);
+    assert.equal(run.phase, 'brief');
+    assert.equal(run.map.currentId, target.id);
+
+    R.declineEncounter(run);
+    assert.equal(run.map.currentId, origin,
+      'the door back leads to where the whole move started, not the last hop');
+  });
+
   it('carries hull damage between encounters but restores the shield', () => {
     const run = freshRun('CARRY');
     driveTo(run, ['map', 'dead'], { maxSteps: 60 });

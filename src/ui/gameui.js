@@ -487,7 +487,15 @@ function openBrief() {
         stat('Assessment', lab.text, lab.colour))),
     actions: [
       // The last door out. Once you engage there is no disengaging.
-      { text: 'Cancel', kind: 'ghost', onClick: () => { closeModal(); play('cancel'); R.declineEncounter(r); syncPhase(true); } },
+      { text: 'Cancel', kind: 'ghost', onClick: () => {
+        closeModal();
+        play('cancel');
+        // Declining puts the ship back where it jumped from; the camera has to
+        // follow or the map lies about where you are.
+        R.declineEncounter(r);
+        ui.map.panTo(U.currentNode(r.map));
+        syncPhase(true);
+      } },
       { text: 'Ship', kind: 'ghost', onClick: () => openInventory() },
       { text: 'Engage', kind: 'primary', onClick: () => { closeModal(); play('confirm'); R.beginEncounter(r); syncPhase(true); } },
     ],
@@ -773,9 +781,10 @@ export function openInventory() {
 
     // Each slot carries its own icon, so it is obvious at a glance which part
     // goes where — the same icon appears on every item that fits it.
-    const slots = el('div.slot-grid', null, ...SLOTS.map(slot => {
+    const slotCard = slot => {
       const item = ship.equipped[slot.id];
-      return el(`div.slot${item ? '' : '.slot-empty'}`, null,
+      const locked = !!slot.unlockLevel && ship.progress.level < slot.unlockLevel;
+      return el(`div.slot${item ? '' : '.slot-empty'}${locked ? '.slot-locked' : ''}`, null,
         el('div.slot-label', null,
           spriteEl(slot.icon, 1),
           el('span', { text: slot.name })),
@@ -785,8 +794,16 @@ export function openInventory() {
             action: 'Unequip',
             onAction: () => { const res = S.unequip(ship, slot.id); play(res.ok ? 'toggle' : 'error'); build(); },
           })
-          : el('div.slot-hollow', { text: 'Empty' }));
-    }));
+          : el('div.slot-hollow', {
+            text: locked ? `Cut into the hull at level ${slot.unlockLevel}` : 'Empty',
+          }));
+    };
+
+    // The guns are read against each other, so they sit side by side; the rest
+    // of the fit is a list.
+    const slots = el('div.slot-grid', null,
+      el('div.slot-guns', null, ...SLOTS.filter(x => x.kind === 'weapon').map(slotCard)),
+      ...SLOTS.filter(x => x.kind !== 'weapon').map(slotCard));
 
     const hfrac = Math.max(0, ship.hull / s.maxHull);
     const statRows = [

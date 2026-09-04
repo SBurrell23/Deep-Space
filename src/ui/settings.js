@@ -36,13 +36,15 @@ export function initSettings(gameProfile, saveFn) {
   bindGameOption('#opt-rotate', 'rotateShip');
   bindGameOption('#opt-autofire', 'autofireDefault');
 
-  const cursor = $('#opt-cursor');
-  if (cursor) cursor.addEventListener('change', () => {
-    if (!profile) return;
-    profile.settings.cursor = cursor.value;
+  const picker = $('#cursor-picker');
+  if (picker) picker.addEventListener('click', e => {
+    const box = e.target.closest('.cursor-box');
+    if (!box || !profile) return;
+    profile.settings.cursor = box.dataset.cursor;
     applyCursor(profile.settings.cursor);
     if (onProfileChange) onProfileChange();
     play('toggle');
+    refresh();
   });
 
   root.addEventListener('click', e => {
@@ -108,10 +110,16 @@ export function refresh() {
     if (input && profile) input.checked = profile.settings[key] ?? dflt;
   }
 
-  const cursor = $('#opt-cursor');
-  if (cursor && profile) {
-    cursor.value = profile.settings.cursor || DEFAULT_CURSOR;
-    applyCursor(cursor.value);
+  const picker = $('#cursor-picker');
+  if (picker && profile) {
+    const chosen = CURSORS.includes(profile.settings.cursor)
+      ? profile.settings.cursor : DEFAULT_CURSOR;
+    applyCursor(chosen);
+    for (const box of picker.querySelectorAll('.cursor-box')) {
+      const on = box.dataset.cursor === chosen;
+      box.classList.toggle('selected', on);
+      box.setAttribute('aria-checked', String(on));
+    }
   }
 
   // The note only earns its space when something is actually wrong.

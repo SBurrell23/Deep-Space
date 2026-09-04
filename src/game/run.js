@@ -52,6 +52,7 @@ export function startRun({ shipId = 'kestrel', seed = null, profile = null } = {
     pending: null,          // rewards awaiting the debrief screen
     anomalyResult: null,
     shopStock: null,
+    jumpOrigin: null,       // where Cancel on the brief puts you back
 
     elapsed: 0,
     startedAt: Date.now(),
@@ -98,6 +99,8 @@ export function jump(run, nodeId) {
   if (run.phase !== 'map') return { ok: false, reason: 'not on the map' };
   if (!U.canJumpTo(run.map, nodeId)) return { ok: false, reason: 'no route there' };
 
+  // Where to put the player back if they read the brief and decline it.
+  run.jumpOrigin = run.map.currentId;
   U.jumpTo(run.map, nodeId, run.ship);
   const node = U.currentNode(run.map);
   run.node = node;
@@ -125,6 +128,7 @@ export function travelPath(run, path) {
   if (run.phase !== 'map' || !Array.isArray(path) || path.length === 0) {
     return { ok: false, reason: 'no route' };
   }
+  const origin = run.map.currentId;
   let last = null;
   for (const id of path) {
     if (!U.canJumpTo(run.map, id)) return { ok: false, reason: 'route is no longer clear' };
@@ -133,6 +137,7 @@ export function travelPath(run, path) {
     // one somehow does, stop there rather than skipping past it.
     if (run.phase !== 'map') break;
   }
+  run.jumpOrigin = origin;
   return last || { ok: false, reason: 'no route' };
 }
 
@@ -188,6 +193,7 @@ export function beginEncounter(run, encounterId = null) {
     width: run.fieldWidth,
   });
   run.phase = 'action';
+  run.jumpOrigin = null;
   return true;
 }
 
@@ -200,6 +206,16 @@ export function beginEncounter(run, encounterId = null) {
  */
 export function declineEncounter(run) {
   if (run.phase !== 'brief') return false;
+
+  // The jump already happened — it has to, or the brief could not describe
+  // what is actually waiting. Declining walks it back, so cancelling leaves
+  // you exactly where you were rather than parked on the fight you refused.
+  const origin = run.jumpOrigin;
+  if (origin != null && run.map.nodes[origin]) {
+    run.map.currentId = origin;
+    run.node = U.currentNode(run.map);
+  }
+  run.jumpOrigin = null;
   run.encounter = null;
   run.phase = maybeLevelUp(run, 'map');
   return true;

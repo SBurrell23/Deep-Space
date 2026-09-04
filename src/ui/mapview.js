@@ -53,6 +53,8 @@ export class MapView {
 
   update(dt) {
     this.t += dt;
+    const box = this.size();
+    this.updatePlanets(dt, box.w, box.h);
     // Critically damped-ish follow; snappy but never jarring.
     const k = Math.min(1, dt * 7);
     this.cam.x += (this.target.x - this.cam.x) * k;
@@ -119,7 +121,7 @@ export class MapView {
     const reach = new Set(reachable.map(n => n.id));
 
     ctx.clearRect(0, 0, w, h);
-    this.drawPlanets(ctx, map, w, h);
+    this.drawPlanets(ctx, w, h);
     this.drawNebulae(ctx, map, w, h);
     this.drawFog(ctx, w, h);
 
@@ -224,56 +226,62 @@ export class MapView {
   /**
    * Background worlds.
    *
-   * Scattered on a coarse jittered grid — one cell every eight ring units —
-   * so panning turns one up every so often rather than a wall of them, and
-   * drawn at a fraction of the camera's motion so they sit visibly far behind
-   * the web. Dim on purpose: this is depth, not decoration to read.
+   * These are scenery, not map furniture: they live in screen space and drift
+   * slowly across it the way the starfield does, so they neither zoom with the
+   * map nor jump when you pan. At most two are alive at once, and a new one is
+   * only released once the last has cleared enough room that — since they all
+   * drift at the same rate — the two can never overlap.
    */
-  planetsFor(map) {
-    if (this._planetMap === map) return this._planets;
-    const rng = new RNG(`${map.seed}:planets`);
+  updatePlanets(dt, w, h) {
     const names = Object.keys(PLANET_ART);
-    const span = Math.ceil(map.rings * 1.3);
-    // One candidate cell every four ring units, a third of them taken: about a
-    // planet per screen at default zoom, which is the "one or two at a time"
-    // the background wants.
-    const CELL = 4;
-    const out = [];
+    if (!names.length) return;
 
-    for (let gx = -span; gx <= span; gx += CELL) {
-      for (let gy = -span; gy <= span; gy += CELL) {
-        if (rng.next() > 0.32) continue;
-        out.push({
-          x: gx + (rng.next() - 0.5) * CELL * 0.85,
-          y: gy + (rng.next() - 0.5) * CELL * 0.85,
-          name: names[Math.floor(rng.next() * names.length)],
-          scale: 3 + Math.floor(rng.next() * 3),   // 3-5x on a 64px sprite
-          alpha: 0.26 + rng.next() * 0.22,
-          depth: 0.16 + rng.next() * 0.14,         // fraction of camera motion
-        });
+    let st = this._planetDrift;
+    if (!st) {
+      st = this._planetDrift = { live: [], rng: new RNG('planet-drift'), bag: [], seeded: false };
+    }
+
+    const SPEED = 8;          // px/sec: a planet takes a couple of minutes to cross
+    const GAP = 90;           // clear sky demanded between two worlds
+
+    for (const pl of st.live) pl.x -= SPEED * dt;
+    st.live = st.live.filter(pl => pl.x + pl.rad > -20);
+
+    if (st.live.length >= 2) return;
+    // The trailing edge of the last world released has to be well inside the
+    // frame before the next one is allowed in behind it.
+    const rightmost = st.live.reduce((m, pl) => (pl.x > (m?.x ?? -Infinity) ? pl : m), null);
+    if (rightmost && rightmost.x + rightmost.rad > w - GAP) return;
+
+    // Draw from a shuffled bag so the same world never turns up twice running.
+    if (!st.bag.length) {
+      st.bag = names.slice();
+      for (let i = st.bag.length - 1; i > 0; i--) {
+        const j = Math.floor(st.rng.next() * (i + 1));
+        [st.bag[i], st.bag[j]] = [st.bag[j], st.bag[i]];
       }
     }
-    this._planetMap = map;
-    this._planets = out;
-    return out;
+
+    const scale = 3 + Math.floor(st.rng.next() * 2);   // fixed 3-4x, never zoomed
+    const rad = 32 * scale;
+    // The first world of a session starts partway across, so opening the map
+    // does not mean half a minute of empty sky before anything arrives.
+    const x = st.seeded ? w + rad : w * 0.55;
+    st.seeded = true;
+    st.live.push({
+      name: st.bag.pop(),
+      scale,
+      rad,
+      x,
+      y: rad * 0.35 + st.rng.next() * Math.max(1, h - rad * 0.7),
+      alpha: 0.22 + st.rng.next() * 0.16,
+    });
   }
 
-  drawPlanets(ctx, map, w, h) {
-    if (!PLANET_ART) return;
-    const z = this.cam.zoom;
-    ctx.save();
-    for (const pl of this.planetsFor(map)) {
-      // Parallax: the further back it is, the less the camera moves it.
-      const x = w / 2 + (pl.x * UNIT - this.cam.x * pl.depth) * z;
-      const y = h / 2 + (pl.y * UNIT - this.cam.y * pl.depth) * z;
-      const rad = 64 * pl.scale * z * 0.5;
-      if (x < -rad || x > w + rad || y < -rad || y > h + rad) continue;
-      safeSprite(ctx, pl.name, x, y, Math.max(1, Math.round(pl.scale * z)), {
-        center: true,
-        alpha: pl.alpha,
-      });
+  drawPlanets(ctx, w, h) {
+    for (const pl of this._planetDrift?.live || []) {
+      safeSprite(ctx, pl.name, pl.x, pl.y, pl.scale, { center: true, alpha: pl.alpha });
     }
-    ctx.restore();
   }
 
   /** A vignette that reads as "you cannot see out there". */

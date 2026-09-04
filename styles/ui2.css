@@ -8,17 +8,56 @@
    aim; the map uses a pointer only where a jump is actually possible. */
 body { cursor: default; }
 /* The aiming cursor is a real X drawn in SVG, and the player picks the ink.
-   `classic` falls back to the system crosshair for anyone who prefers it. */
-body[data-cursor="x"] .screen[data-screen="game"] #stage {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26'%3E%3Cg stroke-linecap='round'%3E%3Cpath d='M5 5l16 16M21 5L5 21' stroke='%23050710' stroke-width='4.6' opacity='.75'/%3E%3Cpath d='M5 5l16 16M21 5L5 21' stroke='%234fe3f5' stroke-width='2.2'/%3E%3C/g%3E%3C/svg%3E") 13 13, crosshair;
+   Each artwork is defined once as a custom property so the game surface and
+   the settings swatch that previews it can never drift apart. */
+:root {
+  --cur-x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26'%3E%3Cg stroke-linecap='round'%3E%3Cpath d='M5 5l16 16M21 5L5 21' stroke='%23050710' stroke-width='4.6' opacity='.75'/%3E%3Cpath d='M5 5l16 16M21 5L5 21' stroke='%234fe3f5' stroke-width='2.2'/%3E%3C/g%3E%3C/svg%3E");
+  --cur-highvis: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30'%3E%3Cg stroke-linecap='round'%3E%3Cpath d='M5 5l20 20M25 5L5 25' stroke='%23050710' stroke-width='6' opacity='.8'/%3E%3Cpath d='M5 5l20 20M25 5L5 25' stroke='%23ff35c8' stroke-width='3.4'/%3E%3C/g%3E%3C/svg%3E");
+  --cur-ring: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Ccircle cx='14' cy='14' r='9' fill='none' stroke='%23050710' stroke-width='4' opacity='.75'/%3E%3Ccircle cx='14' cy='14' r='9' fill='none' stroke='%235cf59b' stroke-width='1.8'/%3E%3Ccircle cx='14' cy='14' r='1.6' fill='%235cf59b'/%3E%3C/svg%3E");
+  --cur-classic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26'%3E%3Cg stroke='%238494b8' stroke-width='1.6'%3E%3Cpath d='M13 2v8M13 16v8M2 13h8M16 13h8'/%3E%3Ccircle cx='13' cy='13' r='4.5' fill='none'/%3E%3C/g%3E%3C/svg%3E");
 }
-body[data-cursor="highvis"] .screen[data-screen="game"] #stage {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30'%3E%3Cg stroke-linecap='round'%3E%3Cpath d='M5 5l20 20M25 5L5 25' stroke='%23050710' stroke-width='6' opacity='.8'/%3E%3Cpath d='M5 5l20 20M25 5L5 25' stroke='%23ff35c8' stroke-width='3.4'/%3E%3C/g%3E%3C/svg%3E") 15 15, crosshair;
-}
-body[data-cursor="ring"] .screen[data-screen="game"] #stage {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Ccircle cx='14' cy='14' r='9' fill='none' stroke='%23050710' stroke-width='4' opacity='.75'/%3E%3Ccircle cx='14' cy='14' r='9' fill='none' stroke='%235cf59b' stroke-width='1.8'/%3E%3Ccircle cx='14' cy='14' r='1.6' fill='%235cf59b'/%3E%3C/svg%3E") 14 14, crosshair;
-}
+body[data-cursor="x"] .screen[data-screen="game"] #stage { cursor: var(--cur-x) 13 13, crosshair; }
+body[data-cursor="highvis"] .screen[data-screen="game"] #stage { cursor: var(--cur-highvis) 15 15, crosshair; }
+body[data-cursor="ring"] .screen[data-screen="game"] #stage { cursor: var(--cur-ring) 14 14, crosshair; }
 body[data-cursor="classic"] .screen[data-screen="game"] #stage { cursor: crosshair; }
+
+/* --- the picker ----------------------------------------------------------
+   Four boxes, each wearing its own artwork and handing you that cursor while
+   the pointer is over it: you try one before you own it. */
+.setting-cursor { margin-top: 14px; }
+.setting-cursor > label { display: block; font-size: 12.5px; color: #b9c6e2; letter-spacing: .04em; margin-bottom: 8px; }
+.cursor-picker { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.cursor-box {
+  appearance: none; font: inherit;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 4px 8px;
+  background: var(--steel-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--steel-4);
+  transition: border-color .12s ease, background .12s ease, color .12s ease;
+}
+.cb-art {
+  width: 30px; height: 30px;
+  background-repeat: no-repeat; background-position: center; background-size: contain;
+}
+.cb-name { font-size: 10px; letter-spacing: .05em; text-align: center; line-height: 1.2; }
+.cursor-box[data-cursor="x"] .cb-art { background-image: var(--cur-x); }
+.cursor-box[data-cursor="highvis"] .cb-art { background-image: var(--cur-highvis); }
+.cursor-box[data-cursor="ring"] .cb-art { background-image: var(--cur-ring); }
+.cursor-box[data-cursor="classic"] .cb-art { background-image: var(--cur-classic); }
+.cursor-box[data-cursor="x"]:hover { cursor: var(--cur-x) 13 13, crosshair; }
+.cursor-box[data-cursor="highvis"]:hover { cursor: var(--cur-highvis) 15 15, crosshair; }
+.cursor-box[data-cursor="ring"]:hover { cursor: var(--cur-ring) 14 14, crosshair; }
+.cursor-box[data-cursor="classic"]:hover { cursor: crosshair; }
+.cursor-box:hover { border-color: var(--cyan-1); color: #b9c6e2; }
+.cursor-box.selected {
+  border-color: var(--cyan-2);
+  background: rgba(23, 162, 184, .16);
+  color: var(--cyan-3);
+  box-shadow: 0 0 10px rgba(79, 227, 245, .22) inset;
+}
+.cursor-hint { margin: 8px 0 0; font-size: 10.5px; color: var(--dim); font-style: italic; }
 .screen[data-screen="game"] #stage { cursor: crosshair; }
 #mapcanvas { cursor: grab; }
 #mapcanvas:active { cursor: grabbing; }
@@ -150,7 +189,11 @@ body[data-cursor="classic"] .screen[data-screen="game"] #stage { cursor: crossha
 .inv-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 22px; align-items: start; }
 .inv-cols > div { min-width: 0; }
 .inv-cols .section-title { margin-top: 0; }
-@media (max-width: 900px) {
+/* These columns answer to the panel they sit in, not to the window: the modal
+   is one of two side-by-side columns, so a viewport media query collapses them
+   at entirely the wrong moment. */
+.inv-right { container: invright / inline-size; }
+@container invright (max-width: 520px) {
   .inv-cols { grid-template-columns: minmax(0, 1fr); }
   .inv-head { flex-wrap: wrap; }
 }
@@ -214,11 +257,6 @@ body[data-cursor="classic"] .screen[data-screen="game"] #stage { cursor: crossha
 
 /* --- pointer affordances ------------------------------------------------- */
 .ship-button { cursor: pointer; }
-.setting-select {
-  background: var(--steel-1); color: var(--white);
-  border: 1px solid var(--line); border-radius: 3px;
-  padding: 5px 8px; font: inherit; font-size: 12px; cursor: pointer;
-}
 
 /* --- Records: a centred column, not a full-bleed ledger ------------------- */
 #screen-stats .scroll-pane > * {
@@ -233,9 +271,18 @@ body[data-cursor="classic"] .screen[data-screen="game"] #stage { cursor: crossha
   margin-left: auto; margin-right: auto;
 }
 
-/* --- Hangar: the detail pane is a column, not a billboard ----------------- */
-.ship-detail > * { max-width: 700px; }
+/* --- Hangar: the detail pane is a centred column, not a billboard ---------
+   Scoped through the screen id so it outranks the element-specific margins
+   main.css sets on the headings inside. */
 .ship-detail { padding-left: 36px; padding-right: 36px; }
+#screen-hangar .ship-detail > * {
+  max-width: 700px;
+  margin-left: auto; margin-right: auto;
+}
+/* A button ignores auto margins while it is inline, so it needs saying. */
+#screen-hangar .ship-detail > .launch-btn {
+  display: block; width: fit-content;
+}
 
 /* --- title: bigger, and with some light behind it -------------------------
    The name is the only art on the screen, so it carries a gradient fill, a
@@ -272,4 +319,17 @@ body[data-cursor="classic"] .screen[data-screen="game"] #stage { cursor: crossha
 
 @media (max-width: 720px) {
   .game-title { font-size: clamp(40px, 12vw, 64px); margin-bottom: 18px; }
+}
+
+/* --- loadout: the guns read against each other ---------------------------- */
+.slot-guns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.slot-guns > .slot { min-width: 0; }
+/* The heavy mount is one weapon, not a pair: it takes the whole row. */
+.slot-guns > .slot:nth-child(3) { grid-column: 1 / -1; }
+.slot-locked { opacity: .55; }
+.slot-locked .slot-hollow { font-style: italic; }
+.inv-left { container: invleft / inline-size; }
+@container invleft (max-width: 420px) {
+  .slot-guns { grid-template-columns: 1fr; }
+  .slot-guns > .slot:nth-child(3) { grid-column: auto; }
 }

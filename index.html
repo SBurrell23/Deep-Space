@@ -34,7 +34,7 @@
         <button class="btn" data-action="help">How To Play</button>
         <button class="btn" data-action="settings">Sound &amp; Settings</button>
       </nav>
-      <p class="version">v2.1</p>
+      <p class="version">v2.2</p>
     </div>
   </section>
 
@@ -214,14 +214,23 @@
         <input type="checkbox" id="opt-autofire">
         <label for="opt-autofire">Hold-to-fire (uncheck for autofire)</label>
       </div>
-      <div class="setting-row">
-        <label for="opt-cursor">Cursor</label>
-        <select id="opt-cursor" class="setting-select">
-          <option value="x">Targeting X</option>
-          <option value="highvis">High Vis</option>
-          <option value="ring">Ring Sight</option>
-          <option value="classic">System Crosshair</option>
-        </select>
+      <div class="setting-cursor">
+        <label id="cursor-label">Cursor</label>
+        <div class="cursor-picker" id="cursor-picker" role="radiogroup" aria-labelledby="cursor-label">
+          <button type="button" class="cursor-box" data-cursor="x" role="radio" aria-checked="true">
+            <span class="cb-art"></span><span class="cb-name">Targeting X</span>
+          </button>
+          <button type="button" class="cursor-box" data-cursor="highvis" role="radio" aria-checked="false">
+            <span class="cb-art"></span><span class="cb-name">High Vis</span>
+          </button>
+          <button type="button" class="cursor-box" data-cursor="ring" role="radio" aria-checked="false">
+            <span class="cb-art"></span><span class="cb-name">Ring Sight</span>
+          </button>
+          <button type="button" class="cursor-box" data-cursor="classic" role="radio" aria-checked="false">
+            <span class="cb-art"></span><span class="cb-name">System</span>
+          </button>
+        </div>
+        <p class="cursor-hint">Hover a box to try it.</p>
       </div>
       <p class="setting-note" id="audio-note"></p>
     </div>
