@@ -7,6 +7,7 @@ import {
 import { MASTER_FLEET_STAGES } from '../src/game/run.js';
 import { Corridor } from '../src/game/terrain.js';
 import { SLOT_IDS } from '../src/game/items.js';
+import { ENEMIES } from '../src/game/enemies.js';
 import { ATTRIBUTE_IDS } from '../src/game/attributes.js';
 
 const EFFECT_KEYS = new Set([
@@ -41,6 +42,29 @@ describe('encounter content', () => {
       const action = candidatesFor(t).filter(e => ENCOUNTER_TYPES[e.type]?.action);
       assert.greater(action.length, 2, `threat ${t} has too few playable encounters`);
     }
+  });
+
+  it('gives every enemy archetype somewhere to appear', () => {
+    // An archetype no encounter references is dead content: it exists, it is
+    // balanced, it is tested, and no player will ever see it.
+    const used = new Set();
+    for (const e of ALL_ENCOUNTERS) {
+      for (const w of e.waves || []) {
+        for (const g of w.spawn || []) {
+          if (g.id) used.add(g.id);
+          for (const id of g.ids || []) used.add(id);
+          for (const id of g.pool || []) used.add(id);
+        }
+      }
+    }
+    // Enemies only ever summoned by another enemy count as reachable too.
+    for (const id of Object.keys(ENEMIES)) {
+      const def = ENEMIES[id];
+      if (def.spawns?.id) used.add(def.spawns.id);
+      if (def.splits?.into) used.add(def.splits.into);
+    }
+    const orphans = Object.keys(ENEMIES).filter(id => !used.has(id));
+    assert.deepEqual(orphans, [], 'enemies that can never spawn');
   });
 
   it('covers every declared type with content', () => {
