@@ -29,7 +29,11 @@ export class MapView {
     this.dragMoved = 0;
     this.last = { x: 0, y: 0 };
     this.t = 0;
+    /** Node ids of a multi-hop route being previewed on hover. */
+    this.path = [];
   }
+
+  setPath(ids) { this.path = ids || []; }
 
   /** Centre on a node without animating — used when the map first opens. */
   snapTo(node) {
@@ -116,19 +120,25 @@ export class MapView {
     ctx.clearRect(0, 0, w, h);
     this.drawFog(ctx, w, h);
 
-    // Ring guides, so "further out is worse" is legible at a glance.
-    ctx.save();
-    ctx.strokeStyle = 'rgba(79,227,245,0.05)';
-    ctx.lineWidth = 1;
-    const origin = this.project({ x: 0, y: 0 });
-    for (let r = 1; r < map.rings; r++) {
-      ctx.beginPath();
-      ctx.arc(origin.x, origin.y, r * UNIT * this.cam.zoom, 0, Math.PI * 2);
-      ctx.stroke();
+    // Ring guides, so "further out is worse" is legible at a glance. They are
+    // orientation, not detail: once you are zoomed in picking a node they are
+    // pure clutter, so fade them out as you close in.
+    const ringAlpha = Math.max(0, Math.min(1, (0.95 - this.cam.zoom) / 0.35));
+    if (ringAlpha > 0.01) {
+      ctx.save();
+      ctx.strokeStyle = `rgba(79,227,245,${(0.075 * ringAlpha).toFixed(3)})`;
+      ctx.lineWidth = 1;
+      const origin = this.project({ x: 0, y: 0 });
+      for (let r = 1; r < map.rings; r++) {
+        ctx.beginPath();
+        ctx.arc(origin.x, origin.y, r * UNIT * this.cam.zoom, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
-    ctx.restore();
 
     this.drawLinks(ctx, map, reach);
+    this.drawPath(ctx, map);
 
     // Nodes, far to near so the current node sits on top.
     const visible = map.nodes.filter(n => n.state !== NODE_STATE.UNKNOWN);
@@ -169,6 +179,44 @@ export class MapView {
         ctx.lineTo(b.x, b.y);
         ctx.stroke();
       }
+    }
+    ctx.restore();
+  }
+
+  /** The previewed multi-hop route, drawn as a marching dashed line. */
+  drawPath(ctx, map) {
+    if (this.path.length === 0) return;
+    const pts = [map.nodes[map.currentId], ...this.path.map(id => map.nodes[id])]
+      .filter(Boolean)
+      .map(n => this.project(n));
+    if (pts.length < 2) return;
+
+    ctx.save();
+    ctx.strokeStyle = C.cyan;
+    ctx.lineWidth = Math.max(2, 2.6 * this.cam.zoom);
+    ctx.setLineDash([9, 7]);
+    ctx.lineDashOffset = -this.t * 26;
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Number the hops so the length of the trip is obvious.
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = C.cyan;
+    ctx.font = `bold ${Math.round(10 * Math.max(0.85, this.cam.zoom))}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let i = 1; i < pts.length; i++) {
+      const mid = { x: (pts[i - 1].x + pts[i].x) / 2, y: (pts[i - 1].y + pts[i].y) / 2 };
+      ctx.fillStyle = 'rgba(5,7,15,0.9)';
+      ctx.beginPath();
+      ctx.arc(mid.x, mid.y, 8 * Math.max(0.8, this.cam.zoom), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = C.cyan;
+      ctx.fillText(String(i), mid.x, mid.y + 0.5);
     }
     ctx.restore();
   }

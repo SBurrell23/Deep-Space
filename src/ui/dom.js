@@ -38,6 +38,21 @@ export function el(spec, attrs = null, ...children) {
   return node;
 }
 
+/**
+ * Append children, skipping null/false.
+ *
+ * Native Element.append() stringifies null into the literal text "null", so a
+ * conditional child that evaluates to null renders as visible junk — two of
+ * them side by side produced "nullnull" on the map's node card.
+ */
+export function append(node, ...children) {
+  for (const c of children.flat()) {
+    if (c == null || c === false) continue;
+    node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return node;
+}
+
 export function clear(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
   return node;

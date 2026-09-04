@@ -274,6 +274,43 @@ export function canJumpTo(map, id) {
   return reachable(map).some(n => n.id === id);
 }
 
+/**
+ * Shortest route to `id` that only PASSES THROUGH cleared nodes.
+ *
+ * Cleared nodes hold nothing, so walking back across explored space one beacon
+ * at a time is busywork. This finds a route the player has already earned and
+ * lets the map offer it as a single move. The destination itself need not be
+ * cleared — it is the one node the route may end on.
+ *
+ * Returns the node ids to travel in order (excluding the current node), or
+ * null if no such route exists.
+ */
+export function routeThroughCleared(map, id) {
+  if (id === map.currentId) return null;
+  if (canJumpTo(map, id)) return null;      // adjacent; a plain jump covers it
+
+  const prev = new Map([[map.currentId, null]]);
+  const queue = [map.currentId];
+
+  while (queue.length) {
+    const at = queue.shift();
+    for (const next of map.nodes[at].links) {
+      if (prev.has(next)) continue;
+      const node = map.nodes[next];
+      if (node.state === NODE_STATE.UNKNOWN) continue;
+      prev.set(next, at);
+      if (next === id) {
+        const path = [];
+        for (let cur = id; cur != null && cur !== map.currentId; cur = prev.get(cur)) path.unshift(cur);
+        return path.length ? path : null;
+      }
+      // You may only continue onward through space you have already cleared.
+      if (node.cleared) queue.push(next);
+    }
+  }
+  return null;
+}
+
 /** Move. The caller is responsible for running the destination's encounter. */
 export function jumpTo(map, id, ship) {
   if (!canJumpTo(map, id)) return false;

@@ -156,21 +156,28 @@ export function resizeStage(canvas) {
  * How the 960x540 field maps into the canvas. Returned so input can convert a
  * mouse position back into world coordinates using exactly the same transform.
  */
-export function viewport(canvas) {
+export function viewport(canvas, worldW = WORLD_W, worldH = WORLD_H) {
   const rect = canvas.getBoundingClientRect();
   const w = Math.max(1, rect.width), h = Math.max(1, rect.height);
-  const scale = Math.min(w / WORLD_W, h / WORLD_H);
+  const scale = Math.min(w / worldW, h / worldH);
   return {
     scale,
-    ox: (w - WORLD_W * scale) / 2,
-    oy: (h - WORLD_H * scale) / 2,
+    ox: (w - worldW * scale) / 2,
+    oy: (h - worldH * scale) / 2,
     w, h,
   };
 }
 
-export function screenToWorld(canvas, clientX, clientY) {
+/** The logical field width that best fills an element at the fixed 540 height. */
+export function fieldWidthFor(node) {
+  const rect = node.getBoundingClientRect();
+  if (rect.height <= 0 || rect.width <= 0) return WORLD_W;
+  return Math.round(WORLD_H * (rect.width / rect.height));
+}
+
+export function screenToWorld(canvas, clientX, clientY, worldW, worldH) {
   const rect = canvas.getBoundingClientRect();
-  const v = viewport(canvas);
+  const v = viewport(canvas, worldW, worldH);
   return {
     x: (clientX - rect.left - v.ox) / v.scale,
     y: (clientY - rect.top - v.oy) / v.scale,
@@ -340,6 +347,10 @@ export function consumeEvents(events, fx) {
       case 'playerDestroyed': fx.boom(ev.x, ev.y, 90, true); sounds.push(['ship_destroyed', 0]); break;
       case 'encounterCleared': sounds.push(['confirm', 0]); break;
       case 'dryFire': sounds.push(['power_fail', 400]); break;
+      case 'zoneSpawn': sounds.push(['fire_start', 200]); fx.ring(ev.x, ev.y, 60, C.red); break;
+      case 'beamCharge': sounds.push(['charge_up', 300]); break;
+      case 'enemyBeam': sounds.push(['laser_heavy', 120]); fx.shake = Math.min(18, fx.shake + 4); break;
+      case 'negated': fx.ring(ev.x, ev.y, 60, C.amber); sounds.push(['shield_up', 100]); break;
     }
   }
   return sounds;
@@ -352,7 +363,7 @@ export function consumeEvents(events, fx) {
 /** Draw one frame of the simulation into the stage canvas. */
 export function drawWorld(canvas, world, fx, t) {
   const ctx = canvas.getContext('2d');
-  const v = viewport(canvas);
+  const v = viewport(canvas, world.w, world.h);
   ctx.clearRect(0, 0, v.w, v.h);
 
   ctx.save();
@@ -364,14 +375,15 @@ export function drawWorld(canvas, world, fx, t) {
   // Field edge, so the play area reads as a bounded arena.
   ctx.strokeStyle = 'rgba(79,227,245,0.18)';
   ctx.lineWidth = 1;
-  ctx.strokeRect(0.5, 0.5, WORLD_W - 1, WORLD_H - 1);
+  ctx.strokeRect(0.5, 0.5, world.w - 1, world.h - 1);
 
   // Clip to the field: nothing should spill into the letterbox.
   ctx.beginPath();
-  ctx.rect(0, 0, WORLD_W, WORLD_H);
+  ctx.rect(0, 0, world.w, world.h);
   ctx.clip();
 
   if (world.corridor) drawCorridor(ctx, world);
+  drawZones(ctx, world, t);
   drawObstacles(ctx, world, t);
   drawPickups(ctx, world, t);
   drawDrones(ctx, world);
@@ -379,6 +391,7 @@ export function drawWorld(canvas, world, fx, t) {
   drawPlayerBullets(ctx, world);
   drawEnemyBullets(ctx, world);
   drawPlayer(ctx, world, t);
+  drawBeams(ctx, world, t);
   drawOffscreenWarnings(ctx, world, t);
   fx.draw(ctx);
 
@@ -389,7 +402,7 @@ function drawCorridor(ctx, world) {
   const cor = world.corridor;
   const style = TERRAIN_STYLES[cor.style] || TERRAIN_STYLES.rock;
   const startCol = Math.floor(world.scrollX / TERRAIN_TILE);
-  const cols = Math.ceil(WORLD_W / TERRAIN_TILE) + 2;
+  const cols = Math.ceil(world.w / TERRAIN_TILE) + 2;
 
   ctx.fillStyle = style.tint;
   for (let i = 0; i < cols; i++) {
@@ -399,7 +412,7 @@ function drawCorridor(ctx, world) {
     // Solid fill above the ceiling and below the floor, then a lit lip tile on
     // each surface so the edge reads instead of being a flat silhouette.
     ctx.fillRect(x, 0, TERRAIN_TILE + 1, col.ceil);
-    ctx.fillRect(x, col.floor, TERRAIN_TILE + 1, WORLD_H - col.floor);
+    ctx.fillRect(x, col.floor, TERRAIN_TILE + 1, world.h - col.floor);
     safeSprite(ctx, style.top, x, col.ceil - TERRAIN_TILE, 1);
     safeSprite(ctx, style.bot, x, col.floor, 1);
   }
@@ -425,6 +438,101 @@ function drawCorridor(ctx, world) {
   ctx.stroke();
 }
 
+/**
+ * Area-denial zones. Drawn under everything, because they are terrain rather
+ * than a thing to shoot — and they announce themselves while arming, since an
+ * invisible hazard is not difficulty, it is an ambush.
+ */
+function drawZones(ctx, world, t) {
+  const TINT = {
+    burn: ['rgba(255,92,114,', '#ff5c72'],
+    gas: ['rgba(92,245,155,', '#5cf59b'],
+    field: ['rgba(192,126,245,', '#c07ef5'],
+  };
+  for (const z of world.zones) {
+    if (z.dead) continue;
+    const [rgba, solid] = TINT[z.kind] || TINT.burn;
+    const arming = z.t < (z.arm || 0);
+    const armFrac = arming ? z.t / Math.max(0.01, z.arm) : 1;
+    // Fade out over the last second so its expiry is readable.
+    const fade = Math.min(1, z.life);
+
+    ctx.save();
+    if (arming) {
+      // While arming it is only an outline — a warning, not yet a wall.
+      ctx.globalAlpha = 0.35 + 0.35 * Math.sin(t * 14);
+      ctx.strokeStyle = solid;
+      ctx.setLineDash([7, 6]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(z.x, z.y, z.r * (0.55 + 0.45 * armFrac), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      const g = ctx.createRadialGradient(z.x, z.y, z.r * 0.15, z.x, z.y, z.r);
+      g.addColorStop(0, `${rgba}${(0.30 * fade).toFixed(2)})`);
+      g.addColorStop(0.7, `${rgba}${(0.16 * fade).toFixed(2)})`);
+      g.addColorStop(1, `${rgba}0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalAlpha = (0.5 + 0.2 * Math.sin(t * 5 + z.x)) * fade;
+      ctx.strokeStyle = solid;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+/**
+ * Telegraphed beams. The warning line is the attack — it is dodged by reading
+ * where it will land, so it has to be unmistakable before it fires.
+ */
+function drawBeams(ctx, world, t) {
+  for (const b of world.beams) {
+    if (b.dead) continue;
+    const ex = b.x + Math.cos(b.angle) * b.length;
+    const ey = b.y + Math.sin(b.angle) * b.length;
+
+    ctx.save();
+    if (!b.fired) {
+      const charge = Math.min(1, b.t / Math.max(0.01, b.telegraph));
+      ctx.globalAlpha = 0.30 + 0.45 * charge;
+      ctx.strokeStyle = C.red;
+      ctx.lineWidth = 1 + charge * 2;
+      ctx.setLineDash([12, 9]);
+      ctx.lineDashOffset = -t * 40;
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // A widening ghost of the actual beam, so its thickness is legible too.
+      ctx.globalAlpha = 0.10 + 0.16 * charge;
+      ctx.lineWidth = b.width * charge;
+      ctx.stroke();
+    } else {
+      const decay = Math.max(0, 1 - (b.t - b.telegraph) / (b.linger || 0.35));
+      ctx.globalAlpha = decay;
+      ctx.strokeStyle = C.red;
+      ctx.lineWidth = b.width;
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+      ctx.strokeStyle = C.white;
+      ctx.lineWidth = Math.max(2, b.width * 0.35);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
 function drawObstacles(ctx, world, t) {
   for (const o of world.obstacles) {
     if (o.dead) continue;
@@ -433,7 +541,14 @@ function drawObstacles(ctx, world, t) {
   }
 }
 
+const PICKUP_LABEL = {
+  energy: ['ENERGY', '#ffcc5c'], repair: ['HULL', '#5cf59b'],
+  shield: ['SHIELD', '#4fe3f5'], credits: ['CREDITS', '#ffcc5c'],
+  xp: ['XP', '#c07ef5'], crate: ['SALVAGE', '#e8f0ff'], ammo: ['AMMO', '#8494b8'],
+};
+
 function drawPickups(ctx, world, t) {
+  const player = world.player;
   for (const p of world.pickups) {
     if (p.dead) continue;
     // Blink out as they expire, so a fading pickup is legible as urgent.
@@ -441,6 +556,26 @@ function drawPickups(ctx, world, t) {
     if (expiring && Math.floor(t * 8) % 2 === 0) continue;
     const bob = Math.sin(t * 4 + p.x * 0.05) * 2;
     safeSprite(ctx, p.sprite, p.x, p.y + bob, 1, { center: true });
+
+    // Label what it actually gives, once you are close enough to care. Without
+    // this every drop is an unlabelled coloured dot.
+    const d = Math.hypot(player.x - p.x, player.y - p.y);
+    if (d > 210) continue;
+    const [label, colour] = PICKUP_LABEL[p.kind] || ['', '#e8f0ff'];
+    if (!label) continue;
+    const amount = p.kind === 'crate' ? '' : `+${Math.round(p.amount)} `;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, (210 - d) / 70) * (expiring ? 0.65 : 1);
+    ctx.font = 'bold 9px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    const text = `${amount}${label}`;
+    const w = ctx.measureText(text).width;
+    ctx.fillStyle = 'rgba(5,7,15,0.72)';
+    ctx.fillRect(p.x - w / 2 - 3, p.y + bob - 20, w + 6, 11);
+    ctx.fillStyle = colour;
+    ctx.fillText(text, p.x, p.y + bob - 11);
+    ctx.restore();
   }
 }
 
@@ -532,33 +667,35 @@ function drawEnemyBullets(ctx, world) {
   }
 }
 
+/** Player ship scale. Smaller than 1:1 — at full size it crowded the field. */
+const PLAYER_SCALE = 0.75;
+
 function drawPlayer(ctx, world, t) {
   const p = world.player;
   if (world.state === 'lost' && p.hull <= 0) return;
 
-  // Shield bubble.
-  if (p.shield > 0) {
-    ctx.save();
-    ctx.globalAlpha = 0.13 + 0.22 * (p.shield / Math.max(1, p.maxShield));
-    ctx.strokeStyle = C.cyan;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.ellipse(p.x, p.y, 40, 30, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  }
+  const facing = p.facing || 0;
 
-  // Engine flame.
+  if (p.shield > 0) drawShieldBubble(ctx, p, t);
+
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  if (facing) ctx.rotate(facing);
+  ctx.scale(PLAYER_SCALE, PLAYER_SCALE);
+
+  // Engine flame, drawn in the hull's own frame so it stays on the exhaust
+  // whichever way the ship is pointing.
   const flame = ['fx_thrust0', 'fx_thrust1', 'fx_thrust2'][Math.floor(t * 14) % 3];
-  safeSprite(ctx, flame, p.x - 34, p.y - 3, 1, { center: true });
+  safeSprite(ctx, flame, -34, 0, 1, { center: true });
 
   // Invulnerability (dash i-frames, phase shift) reads as a strobe.
   const invulnBlink = p.invuln > 0 && Math.floor(t * 20) % 2 === 0;
-  safeSprite(ctx, p.sprite, p.x, p.y, 1, {
+  safeSprite(ctx, p.sprite, 0, 0, 1, {
     center: true,
     alpha: invulnBlink ? 0.35 : 1,
     tint: p.hitFlash > 0.4 ? '#ff5c72' : null,
   });
+  ctx.restore();
 
   // Charge indicator for charge-behaviour weapons.
   if (p.charging > 0) {
@@ -574,12 +711,62 @@ function drawPlayer(ctx, world, t) {
   }
 }
 
+/**
+ * The player's shield.
+ *
+ * A flat ring read as a debug circle. This is layered: a soft interior wash, a
+ * hex-faceted rim that counter-rotates, and a breathing pulse whose speed and
+ * brightness track how much screen is left — so the shield's health is legible
+ * from the effect itself, not just the bar.
+ */
+function drawShieldBubble(ctx, p, t) {
+  const frac = Math.max(0, Math.min(1, p.shield / Math.max(1, p.maxShield)));
+  const rx = 42, ry = 32;
+  // Low shields breathe faster and harder: an urgency cue without a warning.
+  const pulse = 1 + 0.05 * Math.sin(t * (3 + (1 - frac) * 5));
+
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.scale(pulse, pulse);
+
+  const g = ctx.createRadialGradient(0, 0, rx * 0.35, 0, 0, rx);
+  g.addColorStop(0, 'rgba(79,227,245,0)');
+  g.addColorStop(0.72, `rgba(23,162,184,${(0.10 + 0.13 * frac).toFixed(3)})`);
+  g.addColorStop(1, `rgba(79,227,245,${(0.20 + 0.26 * frac).toFixed(3)})`);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Faceted rim — a slow counter-rotating hexagon reads as a field, not a line.
+  ctx.rotate(-t * 0.5);
+  ctx.strokeStyle = `rgba(79,227,245,${(0.30 + 0.45 * frac).toFixed(3)})`;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  for (let i = 0; i <= 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const x = Math.cos(a) * rx, y = Math.sin(a) * ry;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+
+  // A brighter arc sweeping the rim, so the bubble never looks static.
+  const sweep = (t * 1.6) % (Math.PI * 2);
+  ctx.strokeStyle = `rgba(232,240,255,${(0.22 * frac).toFixed(3)})`;
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx, ry, 0, sweep, sweep + 0.9);
+  ctx.stroke();
+  ctx.restore();
+}
+
 /** Chevrons for threats about to enter the field. */
 function drawOffscreenWarnings(ctx, world, t) {
   for (const e of world.enemies) {
-    if (e.dead || e.x <= WORLD_W) continue;
-    const y = Math.max(14, Math.min(WORLD_H - 14, e.y));
-    safeSprite(ctx, 'fx_warn', WORLD_W - 16, y, 1, {
+    if (e.dead || e.x <= world.w) continue;
+    const y = Math.max(14, Math.min(world.h - 14, e.y));
+    safeSprite(ctx, 'fx_warn', world.w - 16, y, 1, {
       center: true,
       alpha: 0.4 + 0.4 * Math.sin(t * 8),
     });

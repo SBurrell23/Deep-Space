@@ -57,6 +57,7 @@ function boot() {
     openSettings,
     endRun,
     recordVictory,
+    releaseInput,
   });
 
   bindGlobalInput();
@@ -85,6 +86,9 @@ function boot() {
 
 function sizeCanvases() {
   render.resizeBackdrop($('#backdrop'));
+  // The action field spans the window, so its logical width follows the play
+  // area's aspect. Height is fixed, so nobody gains dodging room.
+  if (state.run) state.run.fieldWidth = render.fieldWidthFor($('#play-area'));
   const stage = $('#stage');
   if (!$('#stage-wrap').hidden) render.resizeStage(stage);
   const map = $('#mapcanvas');
@@ -155,6 +159,7 @@ function startRun(shipId = STARTER_SHIP, seed = null) {
   save.saveProfile(state.profile);
 
   state.run = R.startRun({ shipId, seed, profile: state.profile });
+  state.run.ship.rotate = !!state.profile.settings.rotateShip;
   state.profile.lastShip = shipId;
 
   gameui.ui.lastPhase = null;
@@ -171,6 +176,7 @@ function continueRun() {
   if (!data) return;
   try {
     state.run = R.deserialize(data, state.profile);
+    state.run.ship.rotate = !!state.profile.settings.rotateShip;
   } catch {
     // A save from an incompatible build should not brick the title screen.
     save.clearRun();
@@ -216,6 +222,13 @@ function autosave() {
 // Input
 // ---------------------------------------------------------------------------
 
+/** Drop every held key and button. Called when a fight ends. */
+function releaseInput() {
+  keys.clear();
+  mouse.left = false;
+  mouse.right = false;
+}
+
 function bindGlobalInput() {
   const stage = $('#stage');
 
@@ -242,21 +255,27 @@ function bindGlobalInput() {
   window.addEventListener('blur', () => { keys.clear(); mouse.left = mouse.right = false; });
 
   stage.addEventListener('pointermove', e => {
-    const w = render.screenToWorld(stage, e.clientX, e.clientY);
+    const world = state.run?.world;
+    const w = render.screenToWorld(stage, e.clientX, e.clientY, world?.w, world?.h);
     mouse.x = w.x; mouse.y = w.y;
     mouse.inStage = true;
   });
   stage.addEventListener('pointerdown', e => {
     if (e.button === 0) mouse.left = true;
     if (e.button === 2) mouse.right = true;
-    const w = render.screenToWorld(stage, e.clientX, e.clientY);
+    const world = state.run?.world;
+    const w = render.screenToWorld(stage, e.clientX, e.clientY, world?.w, world?.h);
     mouse.x = w.x; mouse.y = w.y;
   });
   window.addEventListener('pointerup', e => {
     if (e.button === 0) mouse.left = false;
     if (e.button === 2) mouse.right = false;
   });
-  stage.addEventListener('contextmenu', e => e.preventDefault());
+  // Suppress the context menu anywhere in the game screen: the right mouse
+  // button is a weapon trigger, and the menu steals the pointerup that would
+  // otherwise release it.
+  $('#screen-game').addEventListener('contextmenu', e => e.preventDefault());
+  $('#modal-root').addEventListener('contextmenu', e => e.preventDefault());
 }
 
 /** Translate held keys and the mouse into the sim's input struct. */
@@ -316,6 +335,7 @@ function frame(dt) {
   render.drawBackdrop($('#backdrop'), state.time, mood);
 
   if (screen !== 'game' || !r) return;
+  r.ship.rotate = !!state.profile.settings.rotateShip;
 
   if (r.phase === 'action' && r.world) {
     applyInput(r.world);

@@ -10,7 +10,7 @@
  * where the player is, so the two can never disagree.
  */
 
-import { $, $$, el, clear, show, tooltip, tipContent, hideTooltip } from './dom.js';
+import { $, $$, el, append, clear, show, tooltip, tipContent, hideTooltip } from './dom.js';
 import { openModal, closeModal, isModalOpen, toast, showScreen } from './screens.js';
 import * as render from './render.js';
 import { spriteEl } from './render.js';
@@ -22,7 +22,7 @@ import * as S from '../game/ship.js';
 import * as U from '../game/universe.js';
 import { ENCOUNTER_TYPES } from '../game/encounters/index.js';
 import { ATTRIBUTES, previewPoint, xpToNext, MAX_LEVEL, ATTR_CAP } from '../game/attributes.js';
-import { SLOTS, RARITY_BY_ID, describeItem, sellValue, powerScore, ABILITIES } from '../game/items.js';
+import { SLOTS, SLOTS_BY_ID, RARITY_BY_ID, describeItem, sellValue, powerScore, ABILITIES } from '../game/items.js';
 
 export const ui = {
   effects: new render.EffectLayer(),
@@ -41,7 +41,6 @@ export function attach(ctx) {
   ui.map = new MapView($('#mapcanvas'));
   bindTopbar();
   bindMap();
-  bindCombatHud();
 }
 
 // ---------------------------------------------------------------------------
@@ -67,12 +66,14 @@ export function renderTopbar() {
   const b = credits.querySelector('b');
   if (b.textContent !== String(ship.credits)) b.textContent = ship.credits;
   const icon = credits.querySelector('i');
-  if (!icon.dataset.drawn) { icon.dataset.drawn = '1'; icon.append(spriteEl('icon_scrap', 1)); }
+  if (!icon.dataset.drawn) { icon.dataset.drawn = '1'; icon.append(spriteEl('icon_credits', 1)); }
 
   $('#level-num').textContent = ship.progress.level;
   const need = xpToNext(ship.progress.level);
   const frac = need === Infinity ? 1 : ship.progress.xp / need;
   $('#xp-fill').style.width = `${Math.max(0, Math.min(1, frac)) * 100}%`;
+  $('#xp-text').textContent = need === Infinity
+    ? 'MAX' : `${Math.round(ship.progress.xp)} / ${need} XP`;
 
   const pts = ship.progress.unspentPoints;
   show($('#point-pip'), pts > 0);
@@ -84,22 +85,35 @@ export function renderTopbar() {
     ? `Ring ${node.ring} · Threat ${node.threat} · ${ENCOUNTER_TYPES[node.type]?.label || ''}`
     : '';
 
-  const hfrac = ship.hull / ship.stats.maxHull;
+  const hfrac = Math.max(0, ship.hull / ship.stats.maxHull);
+  const state = hfrac <= 0.25 ? 'critical' : hfrac <= 0.55 ? 'hurt' : '';
   const readout = $('#hull-readout');
   readout.innerHTML = `HULL <b>${Math.round(ship.hull)}</b>/${ship.stats.maxHull}`;
-  readout.className = `hull-readout ${hfrac <= 0.25 ? 'critical' : hfrac <= 0.55 ? 'hurt' : ''}`;
+  readout.className = `hull-readout ${state}`;
+  $('#hull-fill').style.width = `${hfrac * 100}%`;
+  $('#hull-bar').className = `hull-bar ${state}`;
+
+  renderShipButton(ship, hfrac);
+}
+
+/** The loadout button on the map: the ship itself, its level and its hull. */
+function renderShipButton(ship, hfrac) {
+  const art = $('#sb-art');
+  if (art.dataset.ship !== ship.sprite) {
+    art.dataset.ship = ship.sprite;
+    clear(art).append(spriteEl(ship.sprite, 2));
+  }
+  $('#sb-name').textContent = ship.name;
+  const pending = ship.progress.unspentPoints;
+  $('#sb-sub').textContent = pending
+    ? `${pending} point${pending === 1 ? '' : 's'} to spend`
+    : `Level ${ship.progress.level} · ${Math.round(hfrac * 100)}% hull`;
+  $('#ship-button').classList.toggle('attention', pending > 0);
 }
 
 // ---------------------------------------------------------------------------
 // Combat HUD
 // ---------------------------------------------------------------------------
-
-function bindCombatHud() {
-  $('#combat-hud').addEventListener('click', e => {
-    const action = e.target.closest('[data-action]')?.dataset.action;
-    if (action === 'flee') confirmFlee();
-  });
-}
 
 export function renderCombatHud() {
   const r = run();
@@ -202,9 +216,11 @@ export function renderCombatHud() {
     dash.dataset.state = want;
     clear(dash);
     dash.append(el('span.dlabel', { text: 'DASH' }));
+    const pips = el('span.dpips');
     for (let i = 0; i < p.dashMax; i++) {
-      dash.append(el(`span.dpip${i < p.dashCharges ? '.on' : ''}`));
+      pips.append(el(`span.dpip${i < p.dashCharges ? '.on' : ''}`));
     }
+    dash.append(pips);
   }
 }
 
@@ -212,19 +228,6 @@ function bar(fillSel, numSel, value, max) {
   const frac = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
   $(fillSel).style.width = `${frac * 100}%`;
   $(numSel).textContent = `${Math.round(value)}/${Math.round(max)}`;
-}
-
-function confirmFlee() {
-  openModal({
-    title: 'Disengage?',
-    body: el('p.modal-text', {
-      text: 'You will jump clear with the damage you have taken. The node stays uncleared and you keep nothing from it.',
-    }),
-    actions: [
-      { text: 'Keep Fighting', kind: 'ghost', onClick: () => closeModal() },
-      { text: 'Disengage', kind: 'danger', onClick: () => { closeModal(); R.flee(run()); } },
-    ],
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -252,9 +255,15 @@ function bindMap() {
       ui.map.last = { x: e.clientX, y: e.clientY };
     } else if (run()) {
       const node = ui.map.nodeAt(run().map, e.clientX, e.clientY);
+      const canGo = node && (U.canJumpTo(run().map, node.id) || node.id === run().map.currentId
+        || !!U.routeThroughCleared(run().map, node.id));
+      cv.classList.toggle('can-jump', !!node && canGo);
+      cv.classList.toggle('no-jump', !!node && !canGo);
       if (node !== ui.hoverNode) {
         ui.hoverNode = node;
-        renderNodeCard(node);
+        ui.map.setPath(node && !U.canJumpTo(run().map, node.id)
+          ? U.routeThroughCleared(run().map, node.id) : null);
+        renderNodeCard(node, ui.map.path.length ? ui.map.path : null);
         if (node) play('hover', { throttle: 90 });
       }
     }
@@ -276,8 +285,10 @@ function bindMap() {
   // Leaving the map must retire the hover card with the pointer, or it hangs
   // over the screen describing wherever the mouse last happened to be.
   cv.addEventListener('pointerleave', () => {
-    if (ui.map.dragging || !ui.hoverNode) return;
+    cv.classList.remove('can-jump', 'no-jump');
+    if (ui.map.dragging) return;
     ui.hoverNode = null;
+    ui.map.setPath([]);
     renderNodeCard(null);
   });
 
@@ -288,7 +299,8 @@ function bindMap() {
 
   $('#map-hud').addEventListener('click', e => {
     const action = e.target.closest('[data-action]')?.dataset.action;
-    if (action === 'zoom-in') ui.map.zoomBy(1.25);
+    if (action === 'inventory') openInventory();
+    else if (action === 'zoom-in') ui.map.zoomBy(1.25);
     else if (action === 'zoom-out') ui.map.zoomBy(1 / 1.25);
     else if (action === 'recentre') ui.map.panTo(U.currentNode(run().map));
   });
@@ -298,42 +310,55 @@ function attemptJump(node) {
   const r = run();
   if (r.phase !== 'map') return;
   if (node.id === r.map.currentId) { ui.map.panTo(node); return; }
-  if (!U.canJumpTo(r.map, node.id)) {
-    play('error');
-    return;
-  }
+
+  const adjacent = U.canJumpTo(r.map, node.id);
+  const route = adjacent ? null : U.routeThroughCleared(r.map, node.id);
+  if (!adjacent && !route) { play('error'); return; }
 
   const go = () => {
     play('jump');
     music.duck(0.4, 1.2);
-    R.jump(r, node.id);
+    ui.map.setPath([]);
+    if (adjacent) R.jump(r, node.id);
+    else R.travelPath(r, route);
     ui.map.panTo(U.currentNode(r.map));
     syncPhase(true);
   };
 
+  // Crossing cleared space holds nothing and costs nothing; go straight there.
+  if (node.cleared) { go(); return; }
+
+  // Committing to an encounter is the decision the run is made of, so it is
+  // always confirmed — and always cancellable.
+  const lab = threatLabel(node.threat, r.ship.progress.level);
   const risky = node.threat - r.ship.progress.level >= 4;
-  if (game.profile.settings?.confirmJump || risky) {
-    const lab = threatLabel(node.threat, r.ship.progress.level);
-    openModal({
-      title: node.encounterName || 'Jump',
-      body: el('div', null,
-        el('div.event-head', null,
-          el('div.event-scene', null, spriteEl(ENCOUNTER_TYPES[node.type]?.icon || 'node_unknown', 3)),
-          el('div', null,
-            el('p.modal-text.flavour', { text: node.blurb || '' }),
-            el('p.modal-text', { html: `Threat <b style="color:${lab.colour}">${node.threat}</b> — ${lab.text} at your level.` }))),
-        risky ? el('p.warn-line', { text: 'This is well above your weight. Ships do not come back from these.' }) : null),
-      actions: [
-        { text: 'Stay Put', kind: 'ghost', onClick: () => closeModal() },
-        { text: 'Jump', kind: 'primary', onClick: () => { closeModal(); go(); } },
-      ],
-    });
-  } else {
-    go();
-  }
+  const peaceful = !ENCOUNTER_TYPES[node.type]?.action;
+
+  openModal({
+    title: node.encounterName || 'Jump',
+    body: el('div', null,
+      el('div.event-head', null,
+        el('div.event-scene', null, spriteEl(ENCOUNTER_TYPES[node.type]?.icon || 'node_unknown', 3)),
+        el('div', null,
+          el('p.modal-text.flavour', { text: node.blurb || '' }),
+          peaceful
+            ? el('p.modal-text', { text: 'Nothing here wants to fight you.' })
+            : el('p.modal-text', { html: `Threat <b style="color:${lab.colour}">${node.threat}</b> — ${lab.text} at your level.` }))),
+      route ? el('p.modal-text.route-note', {
+        text: `${route.length} jumps through space you have already cleared.`,
+      }) : null,
+      // Only warn where there is something to be warned about.
+      risky && !peaceful
+        ? el('p.warn-line', { text: 'This is well above your weight. Ships do not come back from these.' })
+        : null),
+    actions: [
+      { text: 'Cancel', kind: 'ghost', onClick: () => closeModal() },
+      { text: route ? 'Travel' : 'Jump', kind: 'primary', onClick: () => { closeModal(); go(); } },
+    ],
+  });
 }
 
-function renderNodeCard(node) {
+function renderNodeCard(node, path = null) {
   const card = $('#node-card');
   if (!node) { card.hidden = true; return; }
   const r = run();
@@ -343,18 +368,24 @@ function renderNodeCard(node) {
 
   clear(card);
   card.hidden = false;
-  card.append(
+  // A trading post is not a threat, so it does not get a threat readout.
+  const peaceful = !ENCOUNTER_TYPES[node.type]?.action;
+  const route = node.id === r.map.currentId ? 'You are here'
+    : reachable ? 'Click to jump'
+      : path ? `${path.length} jumps through cleared space — click to travel`
+        : 'No route from here';
+
+  append(card,
     el('div.nc-head', null,
       spriteEl(node.cleared ? 'node_cleared' : (ENCOUNTER_TYPES[node.type]?.icon || 'node_unknown'), 2),
       el('div', null,
         el('div.nc-name', { text: node.cleared ? 'Picked clean' : (node.encounterName || 'Unknown') }),
         el('div.nc-type', { text: `${ENCOUNTER_TYPES[node.type]?.label || ''} · Ring ${node.ring}` }))),
-    node.cleared ? null : el('div.nc-threat', null,
+    node.cleared || peaceful ? null : el('div.nc-threat', null,
       el('span.nc-tnum', { text: String(node.threat), style: { color: lab.colour } }),
       el('span', { text: lab.text, style: { color: lab.colour } })),
     known && !node.cleared && node.blurb ? el('p.nc-blurb', { text: node.blurb }) : null,
-    el('div.nc-foot', { text: node.id === r.map.currentId ? 'You are here'
-      : reachable ? 'Click to jump' : 'No route from here' }));
+    el('div.nc-foot', { text: route }));
 }
 
 export function renderMapHud() {
@@ -402,7 +433,12 @@ export function syncPhase(force = false) {
   ui.hoverNode = null;
   $('#node-card').hidden = true;
 
-  if (!inAction && prev === 'action') ui.effects.items.length = 0;
+  if (!inAction && prev === 'action') {
+    ui.effects.items.length = 0;
+    // A trigger still held as the fight ends would otherwise release over the
+    // debrief and press whatever button is under the cursor.
+    game.releaseInput?.();
+  }
 
   switch (r.phase) {
     case 'map':
@@ -501,7 +537,7 @@ function openDebrief() {
 
   const rows = el('div.reward-rows', null,
     rewardRow('icon_star', 'Experience', `+${p.xp}`),
-    rewardRow('icon_scrap', 'Credits', `+${p.credits}`),
+    rewardRow('icon_credits', 'Credits', `+${p.credits}`),
     rewardRow('icon_speed', 'Time', `${p.time.toFixed(0)}s`),
     rewardRow('icon_sys_weapons', 'Accuracy', `${Math.round(p.accuracy * 100)}%`),
     rewardRow('icon_skull', 'Destroyed', String(p.world.stats.kills)),
@@ -583,7 +619,7 @@ function showAnomalyResult() {
   const fx = res.effects || {};
 
   const lines = [];
-  if (fx.credits) lines.push(rewardRow('icon_scrap', 'Credits', `${fx.credits > 0 ? '+' : ''}${fx.credits}`));
+  if (fx.credits) lines.push(rewardRow('icon_credits', 'Credits', `${fx.credits > 0 ? '+' : ''}${fx.credits}`));
   if (fx.xp) lines.push(rewardRow('icon_star', 'Experience', `+${fx.xp}`));
   if (fx.hull) lines.push(rewardRow('icon_hull', 'Hull', `${fx.hull > 0 ? '+' : ''}${Math.round(fx.hull)}`));
   if (fx.attributePoint) lines.push(rewardRow('icon_power', 'Attribute points', `+${fx.attributePoint}`));
@@ -619,7 +655,7 @@ function openShop() {
     const needsRepair = r.ship.hull < r.ship.stats.maxHull;
     const body = el('div', null,
       el('div.shop-head', null,
-        el('span', { html: `Credits: <b>${r.ship.credits}</b>` }),
+        el('span.shop-credits', null, spriteEl('icon_credits', 1), el('b', { text: String(r.ship.credits) })),
         el('span', { html: `Hull: <b>${Math.round(r.ship.hull)}</b>/${r.ship.stats.maxHull}` })),
 
       el('h4.section-title', { text: 'Repairs' }),
@@ -635,7 +671,7 @@ function openShop() {
                 play(res.ok ? 'repair_done' : 'error');
                 openShop();
               },
-            }, el('span', { text: `Full repair — ${stock.repairCost} credits` }))),
+            }, spriteEl('icon_credits', 1), el('span', { text: `Full repair — ${stock.repairCost}` }))),
 
       el('h4.section-title', { text: 'For Sale' }),
       stock.items.length
@@ -751,10 +787,14 @@ export function openInventory() {
     const ship = r.ship;
     const s = ship.stats;
 
+    // Each slot carries its own icon, so it is obvious at a glance which part
+    // goes where — the same icon appears on every item that fits it.
     const slots = el('div.slot-grid', null, ...SLOTS.map(slot => {
       const item = ship.equipped[slot.id];
       return el(`div.slot${item ? '' : '.slot-empty'}`, null,
-        el('div.slot-label', { text: slot.name }),
+        el('div.slot-label', null,
+          spriteEl(slot.icon, 1),
+          el('span', { text: slot.name })),
         item
           ? itemCard(item, {
             compact: true,
@@ -764,15 +804,15 @@ export function openInventory() {
           : el('div.slot-hollow', { text: 'Empty' }));
     }));
 
+    const hfrac = Math.max(0, ship.hull / s.maxHull);
     const statRows = [
-      ['Hull', `${Math.round(ship.hull)} / ${s.maxHull}`],
-      ['Shield', `${s.maxShield} (+${s.shieldRegen.toFixed(1)}/s)`],
-      ['Energy', `${s.maxEnergy} (+${s.energyRegen.toFixed(1)}/s)`],
-      ['Damage', `${Math.round(s.damageMult * 100)}%`],
-      ['Speed', String(Math.round(s.speed))],
-      ['Cooldowns', `${Math.round(s.cooldownMult * 100)}%`],
-      ['Crit', `${Math.round(s.critChance * 100)}% / ${s.critMult.toFixed(2)}x`],
-      ['Pickup range', String(Math.round(s.pickupRange))],
+      ['icon_sys_shields', 'Shield', `${s.maxShield}  +${s.shieldRegen.toFixed(1)}/s`],
+      ['icon_power', 'Energy', `${s.maxEnergy}  +${s.energyRegen.toFixed(1)}/s`],
+      ['icon_sys_weapons', 'Damage', `${Math.round(s.damageMult * 100)}%`],
+      ['icon_sys_engines', 'Speed', String(Math.round(s.speed))],
+      ['icon_sys_sensors', 'Cooldowns', `${Math.round(s.cooldownMult * 100)}%`],
+      ['icon_star', 'Crit', `${Math.round(s.critChance * 100)}%  x${s.critMult.toFixed(2)}`],
+      ['icon_dronepart', 'Pickup range', String(Math.round(s.pickupRange))],
     ];
 
     const body = el('div.inv-wrap', null,
@@ -780,9 +820,49 @@ export function openInventory() {
         el('h4.section-title', { text: 'Loadout' }),
         slots),
       el('div.inv-right', null,
-        el('h4.section-title', { text: `${ship.name} — Level ${ship.progress.level}` }),
-        el('div.stat-list', null, ...statRows.map(([k, v]) =>
-          el('div.stat-line', null, el('span', { text: k }), el('b', { text: v })))),
+        el('div.inv-head', null,
+          spriteEl(ship.sprite, 2),
+          el('div', null,
+            el('div.inv-name', { text: ship.name }),
+            el('div.inv-lvl', null,
+              el('span', { text: `Level ${ship.progress.level}` }),
+              el('span.inv-credits', null, spriteEl('icon_credits', 1), el('b', { text: String(ship.credits) }))))),
+
+        // Hull gets a bar as well as a number — it is the resource the whole
+        // run is played against.
+        el('div.inv-hull', null,
+          el('div.ih-top', null,
+            spriteEl('icon_hull', 1),
+            el('span', { text: 'Hull' }),
+            el('b', { text: `${Math.round(ship.hull)} / ${s.maxHull}` })),
+          el('div.ih-track', null, el('span', {
+            style: { width: `${hfrac * 100}%` },
+            class: hfrac <= 0.25 ? 'critical' : hfrac <= 0.55 ? 'hurt' : '',
+          }))),
+
+        el('h4.section-title', { text: 'Attributes' }),
+        el('div.attr-list', null, ...ATTRIBUTES.map(a => {
+          const v = ship.progress.attributes[a.id];
+          return el('div.attr-row', null,
+            spriteEl(a.icon, 1),
+            el('span.ar-name', { text: a.name }),
+            el('span.ar-track', null, el('span', {
+              style: { width: `${(v / ATTR_CAP) * 100}%`, background: a.accent },
+            })),
+            el('b.ar-val', { text: String(v), style: { color: a.accent } }));
+        })),
+        ship.progress.unspentPoints
+          ? el('button.btn.btn-small.btn-primary.inv-spend', {
+            onclick: () => openLevelUp(),
+          }, el('span', { text: `Spend ${ship.progress.unspentPoints} point${ship.progress.unspentPoints === 1 ? '' : 's'}` }))
+          : null,
+
+        el('h4.section-title', { text: 'Systems' }),
+        el('div.stat-list', null, ...statRows.map(([icon, k, v]) =>
+          el('div.stat-line', null,
+            spriteEl(icon, 1),
+            el('span', { text: k }),
+            el('b', { text: v })))),
         ship.perk ? el('div.perk-box', null,
           el('div.perk-name', { text: ship.perk.name }),
           el('div.perk-desc', { text: ship.perk.desc })) : null,
@@ -819,16 +899,24 @@ function itemCard(item, opts = {}) {
   const rar = RARITY_BY_ID[item.rarity] || RARITY_BY_ID.salvaged;
   const lines = describeItem(item);
 
+  // Name the slot it belongs to. Rarity and level alone do not tell the player
+  // whether a part is a reactor or a nav computer.
+  const slotName = SLOTS_BY_ID[item.slot]?.name
+    || (item.pool === 'utility' ? 'Utility' : item.pool);
+  const slotIcon = SLOTS_BY_ID[item.slot]?.icon || 'icon_sys_battery';
+
   return el(`div.item-card${opts.compact ? '.compact' : ''}${opts.highlight ? '.upgrade' : ''}`, {
     style: { borderColor: rar.colour },
   },
   el('div.ic-head', null,
-    spriteEl(item.icon || 'icon_sys_battery', 1),
+    spriteEl(slotIcon, 1),
     el('div', null,
       el('div.ic-name', { text: item.name, style: { color: rar.colour } }),
-      el('div.ic-sub', { text: `${rar.name} · ilvl ${item.level}` }))),
+      el('div.ic-sub', { text: `${rar.name} · ${slotName} · ilvl ${item.level}` }))),
   el('div.ic-mods', null, ...lines.slice(0, 5).map(t => el('div.ic-mod', { text: t }))),
-  opts.price != null ? el('div.ic-price', { html: `<b>${opts.price}</b> credits` }) : null,
+  opts.price != null
+    ? el('div.ic-price', null, spriteEl('icon_credits', 1), el('b', { text: String(opts.price) }))
+    : null,
   opts.action ? el('div.ic-actions', null,
     el('button.btn.btn-small', {
       disabled: !!opts.disabled,

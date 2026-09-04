@@ -4,13 +4,16 @@
  * Each hull is a different opening hand: a distinct attribute spread, starting
  * gear, and one perk that changes how the ship is flown rather than just adding
  * numbers. Hulls unlock as you win runs and clear achievements, so the roster
- * widens the way FTL's does.
+ * widens as you win runs and clear achievements.
+ *
+ * Internal ids are historical and never shown; the displayed names are the
+ * player-facing identity.
  */
 
 export const SHIPS = {
   kestrel: {
-    id: 'kestrel', name: 'The Kestrel', sprite: 'ship_ext_kestrel',
-    tagline: 'Federation light cruiser. No surprises, no excuses.',
+    id: 'kestrel', name: 'Meridian', sprite: 'ship_ext_kestrel',
+    tagline: 'Fleet-pattern light cruiser. No surprises, no excuses.',
     desc: 'An even spread across every system. The ship to learn the game on, and never a bad pick.',
     attributes: { hull: 3, shields: 3, weapons: 3, reactor: 3, thrusters: 3, systems: 3 },
     gear: { primary: 'pulse', secondary: 'missiles' },
@@ -29,8 +32,8 @@ export const SHIPS = {
   },
 
   mantis: {
-    id: 'mantis', name: 'Mantis Raider', sprite: 'ship_ext_mantis',
-    tagline: 'Boarding ramps stripped out and the guns moved forward.',
+    id: 'mantis', name: 'Hatchet', sprite: 'ship_ext_mantis',
+    tagline: 'Everything that was not a gun has been taken out of it.',
     desc: 'Brutal firepower on a thin hull. It kills things before they can kill it, or it does not survive.',
     attributes: { hull: 2, shields: 1, weapons: 7, reactor: 3, thrusters: 4, systems: 1 },
     gear: { primary: 'scatter', secondary: 'lance' },
@@ -39,7 +42,7 @@ export const SHIPS = {
   },
 
   engi: {
-    id: 'engi', name: 'Engi Tender', sprite: 'ship_ext_engi',
+    id: 'engi', name: 'Shepherd', sprite: 'ship_ext_engi',
     tagline: 'More drone bay than ship.',
     desc: 'Fights at arm’s length behind a screen of drones. Weak on its own, formidable with its escorts alive.',
     attributes: { hull: 3, shields: 3, weapons: 1, reactor: 4, thrusters: 2, systems: 6 },
@@ -49,12 +52,12 @@ export const SHIPS = {
   },
 
   zoltan: {
-    id: 'zoltan', name: 'Zoltan Cruiser', sprite: 'ship_ext_zoltan',
+    id: 'zoltan', name: 'Filament', sprite: 'ship_ext_zoltan',
     tagline: 'The crew is the power plant.',
     desc: 'Vast energy reserves feed weapons that would drain anything else dry, behind a screen that always stops the first hit.',
     attributes: { hull: 2, shields: 4, weapons: 3, reactor: 7, thrusters: 2, systems: 3 },
     gear: { primary: 'beam', secondary: 'shield_breaker' },
-    perk: { id: 'zoltan_screen', name: 'Zoltan Screen', desc: 'Fully negate one hit every 12 seconds.' },
+    perk: { id: 'zoltan_screen', name: 'Static Screen', desc: 'Fully negate one hit every 12 seconds.' },
     unlock: { kind: 'wins', count: 3, desc: 'Defeat the Master Fleet three times.' },
   },
 
@@ -90,7 +93,7 @@ export const SHIPS = {
 
   crystal: {
     id: 'crystal', name: 'Bright Lattice', sprite: 'ship_ext_crystal',
-    tagline: 'Older than the Federation. Nobody knows who built it.',
+    tagline: 'Older than the charts. Nobody knows who built it.',
     desc: 'A shield array that rebuilds itself from every kill. Sustained fights are where it wins.',
     attributes: { hull: 3, shields: 7, weapons: 3, reactor: 3, thrusters: 2, systems: 2 },
     gear: { primary: 'shard', secondary: 'nova_charge' },

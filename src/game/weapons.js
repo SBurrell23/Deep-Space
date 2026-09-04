@@ -196,7 +196,7 @@ export const WEAPONS = {
     id: 'repair_lance', kind: 'secondary', name: 'Nanite Lance',
     desc: 'Converts a fraction of the damage it deals into hull repair.',
     behaviour: 'bullet', damage: 18, rof: 2.0, energy: 11,
-    speed: 700, life: 1.6, count: 1, lifesteal: 0.35,
+    speed: 700, life: 1.6, count: 1, lifesteal: 0.14,
     sprite: 'pb_beam', sound: 'nanoforge', icon: 'icon_repair',
   },
 };

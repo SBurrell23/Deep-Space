@@ -112,6 +112,28 @@ export function jump(run, nodeId) {
   return openNode(run, node);
 }
 
+/**
+ * Travel a multi-hop route through already-cleared space in one move.
+ *
+ * Every node before the last is cleared and so resolves as a plain revisit;
+ * only the final node opens. Guards against a route that stops being legal
+ * mid-walk rather than trusting the caller's cached path.
+ */
+export function travelPath(run, path) {
+  if (run.phase !== 'map' || !Array.isArray(path) || path.length === 0) {
+    return { ok: false, reason: 'no route' };
+  }
+  let last = null;
+  for (const id of path) {
+    if (!U.canJumpTo(run.map, id)) return { ok: false, reason: 'route is no longer clear' };
+    last = jump(run, id);
+    // The last hop is the only one that can open an encounter; if an earlier
+    // one somehow does, stop there rather than skipping past it.
+    if (run.phase !== 'map') break;
+  }
+  return last || { ok: false, reason: 'no route' };
+}
+
 function openNode(run, node) {
   const enc = getEncounter(node.encounterId);
   run.encounter = enc;
@@ -159,6 +181,9 @@ export function beginEncounter(run, encounterId = null) {
     threat: run.node?.threat ?? 1,
     ship: run.ship,
     rng: run.rng.fork(`enc${run.map.jumps}-${enc.id}`),
+    // The field spans the player's window; height is fixed, so the vertical
+    // dodging space everyone gets is identical.
+    width: run.fieldWidth,
   });
   run.phase = 'action';
   return true;

@@ -126,12 +126,12 @@ export const ENEMIES = {
   },
   missile_boat: {
     id: 'missile_boat', name: 'Missile Boat', cls: 'heavy', sprite: 'enemy_bomber', w: 64, h: 40,
-    hull: 110, shield: 16, speed: 82, move: 'hover', fire: 'homing2', fireRate: 0.5,
+    hull: 110, shield: 16, speed: 82, move: 'hover', fire: 'homing4', fireRate: 0.42,
     bulletDamage: 13, bulletSpeed: 250, contact: 16, xp: 42, credits: 30, cost: 9,
   },
   cruiser: {
     id: 'cruiser', name: 'Cruiser', cls: 'heavy', sprite: 'enemy_cruiser', w: 64, h: 40,
-    hull: 190, shield: 45, speed: 62, move: 'hover', fire: 'wall', fireRate: 0.34,
+    hull: 190, shield: 45, speed: 62, move: 'hover', fire: 'double_wall', fireRate: 0.26,
     bulletDamage: 10, bulletSpeed: 210, contact: 22, xp: 65, credits: 45, cost: 13,
     armour: 0.15,
   },
@@ -152,24 +152,64 @@ export const ENEMIES = {
     bulletDamage: 10, bulletSpeed: 430, contact: 16, xp: 45, credits: 30, cost: 9.5,
   },
 
+  censer: {
+    id: 'censer', name: 'Censer', cls: 'mid', sprite: 'mid_phantom', w: 32, h: 24,
+    hull: 54, shield: 14, speed: 72, move: 'hover', fire: 'repulsor_field', fireRate: 0.22,
+    bulletDamage: 9, bulletSpeed: 240, contact: 12, xp: 26, credits: 17, cost: 6,
+  },
+  pyre: {
+    id: 'pyre', name: 'Pyre', cls: 'mid', sprite: 'mid_artillery', w: 32, h: 24,
+    hull: 50, shield: 0, speed: 88, move: 'mirror', fire: 'spreading_pool', fireRate: 0.3,
+    bulletDamage: 10, bulletSpeed: 250, contact: 12, xp: 24, credits: 16, cost: 5.5,
+  },
+  basilisk: {
+    id: 'basilisk', name: 'Basilisk', cls: 'heavy', sprite: 'enemy_elite', w: 64, h: 40,
+    hull: 128, shield: 26, speed: 78, move: 'mirror', fire: 'lance_beam', fireRate: 0.36,
+    bulletDamage: 11, bulletSpeed: 260, contact: 17, xp: 50, credits: 34, cost: 10,
+  },
+  siege_engine: {
+    id: 'siege_engine', name: 'Siege Engine', cls: 'heavy', sprite: 'enemy_auto', w: 64, h: 40,
+    hull: 205, shield: 40, speed: 42, move: 'guard', fire: 'siege_beam', fireRate: 0.2,
+    bulletDamage: 12, bulletSpeed: 220, contact: 20, xp: 68, credits: 46, cost: 13,
+    armour: 0.2,
+  },
+  bulwark_prime: {
+    id: 'bulwark_prime', name: 'Bulwark Prime', cls: 'heavy', sprite: 'enemy_cruiser', w: 64, h: 40,
+    hull: 230, shield: 55, speed: 52, move: 'hover', fire: 'closing_wall', fireRate: 0.3,
+    bulletDamage: 10, bulletSpeed: 205, contact: 22, xp: 72, credits: 50, cost: 14,
+    armour: 0.18,
+  },
+
   // -------------------------------------------------------------------------
   // ELITE — named threats. Rare, and they change how a fight is fought.
   // -------------------------------------------------------------------------
   vanguard: {
     id: 'vanguard', name: 'Vanguard', cls: 'elite', sprite: 'enemy_elite', w: 64, h: 40,
-    hull: 260, shield: 70, speed: 120, move: 'strafe_run', fire: 'spiral', fireRate: 1.3,
+    hull: 260, shield: 70, speed: 120, move: 'strafe_run', fire: 'lance_beam', fireRate: 0.42,
     bulletDamage: 10, bulletSpeed: 250, contact: 26, xp: 120, credits: 90, cost: 20,
     armour: 0.2,
   },
   warden: {
     id: 'warden', name: 'Warden', cls: 'elite', sprite: 'enemy_cruiser', w: 64, h: 40,
-    hull: 340, shield: 110, speed: 52, move: 'hover', fire: 'spiral_double', fireRate: 0.8,
+    hull: 340, shield: 110, speed: 52, move: 'hover', fire: 'cross_beams', fireRate: 0.28,
     bulletDamage: 11, bulletSpeed: 210, contact: 26, xp: 140, credits: 105, cost: 24,
     armour: 0.3, aura: { kind: 'shield', radius: 260, amount: 0.4 },
   },
+  harbinger: {
+    id: 'harbinger', name: 'Harbinger', cls: 'elite', sprite: 'enemy_boss', w: 96, h: 64,
+    hull: 300, shield: 85, speed: 60, move: 'hover', fire: 'missile_barrage', fireRate: 0.28,
+    bulletDamage: 11, bulletSpeed: 240, contact: 30, xp: 135, credits: 100, cost: 22,
+    armour: 0.22,
+  },
+  hierophant: {
+    id: 'hierophant', name: 'Hierophant', cls: 'elite', sprite: 'enemy_elite', w: 64, h: 40,
+    hull: 280, shield: 90, speed: 74, move: 'mirror', fire: 'minefield_zones', fireRate: 0.24,
+    bulletDamage: 12, bulletSpeed: 230, contact: 28, xp: 130, credits: 96, cost: 21,
+    aura: { kind: 'shield', radius: 200, amount: 0.35 },
+  },
   reaper: {
     id: 'reaper', name: 'Reaper', cls: 'elite', sprite: 'enemy_elite', w: 64, h: 40,
-    hull: 210, shield: 50, speed: 190, move: 'kamikaze', fire: 'orb', fireRate: 0.7,
+    hull: 210, shield: 50, speed: 190, move: 'kamikaze', fire: 'burn_zone', fireRate: 0.5,
     bulletDamage: 14, bulletSpeed: 200, contact: 40, xp: 130, credits: 95, cost: 22,
   },
 };
@@ -181,35 +221,36 @@ export function enemiesOfClass(cls) { return ENEMY_IDS.filter(id => ENEMIES[id].
 /**
  * Scale an archetype to a node's threat level.
  *
- * Hull grows faster than damage on purpose: fights should get longer and demand
- * more sustained accuracy as you go out, without one stray bullet at threat 18
- * deleting a fully-levelled ship.
- */
-/**
- * Per-class toughness multiplier applied on top of each archetype's base hull.
- *
- * Not one global number: swarm enemies were dying to a single starting-weapon
- * shot, but the same multiplier on an elite — which already carries a 1.7x
- * elite flag and an encounter's threatBonus — produced capital ships with
- * 16,000 hull that took 80 seconds of unbroken fire to kill while shooting
- * back. Tuned per class with tests/balance.js.
+ * GEOMETRIC, not linear. The player's own power compounds — the Weapons
+ * attribute multiplies an item power roll that itself scales with depth — so
+ * linear enemy growth meant the gap between a player and a node above their
+ * level kept *narrowing*. A level-9 ship could walk into a threat-18 node and
+ * win. Compounding both sides keeps a level-appropriate fight feeling the same
+ * at every depth while making over-reach genuinely punishing: four threat
+ * levels above you is now roughly double the enemy hull, not a third more.
  */
 /**
  * Global multiplier on all enemy damage output.
  *
- * A single honest lever for overall lethality. Hull persists between nodes, so
- * per-encounter damage compounds across a run: at 1.0 even a well-played run
- * bled out around ring 5 having cleared a fifth of the nodes it should.
+ * A single honest lever for overall lethality, separate from the threat curve.
  */
-export const DAMAGE_SCALE = 0.58;
+export const DAMAGE_SCALE = 0.70;
 
+/**
+ * Per-class toughness, applied on top of each archetype's base hull.
+ *
+ * Not one global number: swarm enemies were dying to a single starting-weapon
+ * shot, but the same multiplier on an elite — which already carries an elite
+ * flag and an encounter's threatBonus — produced capital ships with 16,000
+ * hull that took 80 seconds of unbroken fire to kill while shooting back.
+ */
 export const CLASS_TOUGHNESS = { swarm: 8.5, mid: 5.0, heavy: 3.2, elite: 1.8 };
 
 export function scaleEnemy(def, threat) {
   const t = Math.max(1, threat);
   const tough = CLASS_TOUGHNESS[def.cls] ?? 2.5;
-  const hullMul = 1 + 0.15 * (t - 1);
-  const dmgMul = 1 + 0.03 * (t - 1);
+  const hullMul = Math.pow(1.135, t - 1);
+  const dmgMul = Math.pow(1.055, t - 1);
   const rewardMul = 1 + 0.30 * (t - 1);
   return {
     ...def,

@@ -26,9 +26,13 @@ const CULL = 140;
 // World construction
 // ---------------------------------------------------------------------------
 
-export function createWorld({ encounter, threat, ship, rng, seed = 0 }) {
+export const MIN_WORLD_W = 860;
+export const MAX_WORLD_W = 1700;
+
+export function createWorld({ encounter, threat, ship, rng, seed = 0, width = WORLD_W }) {
+  const fieldW = Math.round(clamp(width || WORLD_W, MIN_WORLD_W, MAX_WORLD_W));
   const world = {
-    w: WORLD_W, h: WORLD_H,
+    w: fieldW, h: WORLD_H,
     rng,
     seed,
     time: 0,
@@ -47,6 +51,10 @@ export function createWorld({ encounter, threat, ship, rng, seed = 0 }) {
     drones: [],
     decoys: [],
     effects: [],
+    // Persistent area denial and telegraphed beam attacks. Both are hazards
+    // you position around rather than projectiles you dodge.
+    zones: [],
+    beams: [],
     pendingSpawns: [],
 
     input: blankInput(),
@@ -73,15 +81,20 @@ export function createWorld({ encounter, threat, ship, rng, seed = 0 }) {
   world.spawner = new Spawner(encounter, threat, rng);
 
   if (encounter.terrain) {
-    world.corridor = new Corridor(rng, WORLD_H, encounter.terrain.length ?? 12000, {
-      style: encounter.terrain.style,
-      minAperture: encounter.terrain.minAperture,
-      maxAperture: encounter.terrain.maxAperture,
-      roughness: encounter.terrain.roughness,
-      chambers: encounter.terrain.chambers,
-      pinches: encounter.terrain.pinches,
+    // Passages were authored generously and played as a formality. Tightened
+    // and sped up globally rather than by editing every encounter: the aperture
+    // floor keeps them flyable, and the scroll multiplier is what actually
+    // makes them demand attention.
+    const T = encounter.terrain;
+    world.corridor = new Corridor(rng, WORLD_H, T.length ?? 12000, {
+      style: T.style,
+      minAperture: Math.max(104, (T.minAperture ?? 200) * 0.70),
+      maxAperture: (T.maxAperture ?? 400) * 0.82,
+      roughness: (T.roughness ?? 1) * 1.35,
+      chambers: T.chambers,
+      pinches: Math.round((T.pinches ?? 4) * 1.5),
     });
-    world.scrollSpeed = encounter.terrain.scroll ?? 200;
+    world.scrollSpeed = (T.scroll ?? 200) * 1.5;
   }
 
   if (encounter.obstacles) {
@@ -125,9 +138,16 @@ function createPlayer(ship) {
     secondary: ship.equipped?.secondary ? resolveWeapon(ship.equipped.secondary, s) : null,
     primaryTimer: 0,
     secondaryTimer: 0,
-    charging: 0,
-    chargingWhich: null,
-    beamTick: 0,
+    // Per-slot, not shared. Both triggers are meant to work at the same time,
+    // and a single `charging`/`beamTick` meant holding both made one slot
+    // cancel the other's charge or steal its tick.
+    charging: { primary: 0, secondary: 0 },
+    beamTick: { primary: 0, secondary: 0 },
+
+    // 0 = locked facing right. With rotate mode on, the hull turns to the
+    // cursor; the ship still moves on world axes, only its heading changes.
+    facing: 0,
+    rotate: !!ship.rotate,
 
     dashCooldown: 0,
     dashCharges: Math.max(1, s.dashCharges || 1),
@@ -144,6 +164,11 @@ function createPlayer(ship) {
     // Transient buffs applied by abilities.
     fireRateBuff: 1, fireRateBuffTime: 0,
     hitFlash: 0,
+    // Lifesteal is rate-limited rather than uncapped. Healing a percentage of
+    // damage dealt scales with DPS, and DPS compounds across a run, so an
+    // unbounded 5% turned into full sustain by the mid game.
+    lifestealBudget: 0,
+    negateTimer: 0,
   };
 }
 
@@ -170,6 +195,8 @@ export function update(world, rawDt) {
   updateBullets(world, dt);
   updateObstacles(world, dt);
   updatePickups(world, dt);
+  updateZones(world, dt);
+  updateBeams(world, dt);
   updateEffects(world, dt);
   resolveCollisions(world, dt);
   checkObjective(world);
@@ -231,6 +258,26 @@ function updatePlayer(world, dt) {
     if (p.dashCooldown === 0) p.dashCooldown = s.dashCooldown;
     world.stats.dashes++;
     emit(world, { type: 'dash', x: p.x, y: p.y });
+    if (s.dashWake) {
+      // Everything the dash passes through takes a hit.
+      for (const e of world.enemies) {
+        if (e.dead) continue;
+        if (dist2(e.x, e.y, p.x, p.y) < 120 * 120) {
+          damageEnemy(world, e, 18 + world.threat * 6, { silent: true });
+        }
+      }
+    }
+  }
+
+  if (p.rotate) {
+    const want = Math.atan2(inp.aimY - p.y, inp.aimX - p.x);
+    let diff = want - p.facing;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    // Eased rather than snapped, or the hull jitters with every mouse tremor.
+    p.facing += diff * Math.min(1, dt * 12);
+  } else {
+    p.facing = 0;
   }
 
   p.invuln = Math.max(0, p.invuln - dt);
@@ -255,6 +302,12 @@ function updatePlayer(world, dt) {
       }
     }
   }
+
+  // Lifesteal budget: at most this fraction of max hull healed per second,
+  // however much damage is dealt.
+  const lsCap = p.maxHull * 0.03;
+  p.lifestealBudget = Math.min(lsCap, p.lifestealBudget + lsCap * dt);
+  if (s.negateEvery) p.negateTimer = Math.max(0, p.negateTimer - dt);
 
   // --- energy and shield ---
   p.energy = Math.min(p.maxEnergy, p.energy + s.energyRegen * dt);
@@ -299,31 +352,27 @@ function fireWeapons(world, dt) {
       if (held && p.energy > 0) {
         const drain = wep.energy * dt;
         p.energy = Math.max(0, p.energy - drain);
-        p.beamTick -= dt;
-        if (p.beamTick <= 0) {
-          p.beamTick = 1 / (wep.tickRate || 10);
+        p.beamTick[which] -= dt;
+        if (p.beamTick[which] <= 0) {
+          p.beamTick[which] = 1 / (wep.tickRate || 10);
           fireBeam(world, wep, aim);
         }
       } else {
-        p.beamTick = 0;
+        p.beamTick[which] = 0;
       }
       continue;
     }
 
     if (wep.behaviour === 'charge') {
       if (held) {
-        if (p.chargingWhich && p.chargingWhich !== which) p.charging = 0;
-        p.chargingWhich = which;
         const cost = wep.energy * dt;
         if (p.energy >= cost) {
           p.energy -= cost;
-          p.charging = Math.min(wep.chargeTime, p.charging + dt);
+          p.charging[which] = Math.min(wep.chargeTime, p.charging[which] + dt);
         }
-      } else if (p.chargingWhich === which && p.charging > 0) {
-        const ratio = p.charging / wep.chargeTime;
-        releaseCharge(world, wep, aim, ratio);
-        p.charging = 0;
-        p.chargingWhich = null;
+      } else if (p.charging[which] > 0) {
+        releaseCharge(world, wep, aim, p.charging[which] / wep.chargeTime);
+        p.charging[which] = 0;
         p[timerKey] = shotInterval(wep);
       }
       continue;
@@ -503,7 +552,9 @@ function activateAbility(world, ab) {
 function makeDrone(world, p) {
   return {
     x: p.x - 30, y: p.y - 30, vx: 0, vy: 0, r: 8,
-    life: 14, fireTimer: 0,
+    life: 14 * (1 + (p.stats.droneLifePct || 0)),
+    fireTimer: 0,
+    fireInterval: 0.45 / (1 + (p.stats.droneRofPct || 0)),
     damage: 8 + world.threat * 2.2,
     sprite: 'drone_combat', dead: false,
   };
@@ -647,7 +698,11 @@ function updateEnemies(world, dt) {
       if (e.fireTimer <= 0 && e.x < world.w + 30 && e.x > -40) {
         e.fireTimer = 1 / e.fireRate;
         const specs = (FIRE_PATTERNS[e.fire] || FIRE_PATTERNS.none)(e, world);
-        for (const spec of specs) spawnEnemyBullet(world, e, spec);
+        for (const spec of specs) {
+          if (spec.zone) spawnZone(world, e, spec);
+          else if (spec.beam) spawnBeam(world, e, spec);
+          else spawnEnemyBullet(world, e, spec);
+        }
         if (specs.length) emit(world, { type: 'enemyFire', x: e.x, y: e.y, count: specs.length });
       }
     }
@@ -690,6 +745,41 @@ function scaleFromParent(parent, id, world) {
     xp: Math.round(src.xp * ratio * 0.6),
     credits: Math.round(src.credits * ratio * 0.6),
   };
+}
+
+function spawnZone(world, e, spec) {
+  const z = spec.zone;
+  world.zones.push({
+    x: spec.x ?? e.x, y: spec.y ?? e.y,
+    vx: z.vx ?? 0, vy: z.vy ?? 0,
+    r: z.r ?? 90,
+    maxR: z.maxR ?? null,
+    growth: z.growth ?? 0,
+    dps: (z.dps ?? 12) * (e.bulletDamage / Math.max(1, e.def.bulletDamage || 1) || 1),
+    life: z.life ?? 6,
+    arm: z.arm ?? 0.6,
+    kind: z.kind || 'burn',
+    owner: z.anchored ? e : null,
+    t: 0, tick: 0, dead: false,
+  });
+  emit(world, { type: 'zoneSpawn', x: spec.x ?? e.x, y: spec.y ?? e.y });
+}
+
+function spawnBeam(world, e, spec) {
+  const b = spec.beam;
+  world.beams.push({
+    x: e.x, y: e.y,
+    angle: spec.angle ?? Math.PI,
+    length: b.length ?? 1200,
+    width: b.width ?? 22,
+    damage: (b.damage ?? 3) * (e.bulletDamage || 1),
+    telegraph: b.telegraph ?? 1.1,
+    linger: b.linger ?? 0.35,
+    track: b.track !== false,
+    owner: b.anchored === false ? null : e,
+    t: 0, fired: false, dead: false,
+  });
+  emit(world, { type: 'beamCharge', x: e.x, y: e.y });
 }
 
 function spawnEnemyBullet(world, e, spec) {
@@ -850,7 +940,7 @@ function updateDrones(world, dt) {
     d.fireTimer -= dt;
     const target = nearestEnemy(world, d.x, d.y);
     if (d.fireTimer <= 0 && target) {
-      d.fireTimer = 0.45;
+      d.fireTimer = d.fireInterval || 0.45;
       const a = Math.atan2(target.y - d.y, target.x - d.x);
       world.bullets.push({
         x: d.x, y: d.y, vx: Math.cos(a) * 640, vy: Math.sin(a) * 640, angle: a,
@@ -931,6 +1021,63 @@ export function dropPickup(world, x, y, kind, amount, opts = {}) {
     }[kind] || 'pu_energy',
     dead: false,
   });
+}
+
+/**
+ * Persistent area denial. A zone is space you cannot occupy rather than a
+ * projectile you dodge, which forces repositioning instead of reflexes.
+ */
+function updateZones(world, dt) {
+  const p = world.player;
+  for (const z of world.zones) {
+    if (z.dead) continue;
+    z.t += dt;
+    z.life -= dt;
+    if (z.life <= 0) { z.dead = true; continue; }
+
+    // Zones anchored to a ship follow it; free ones drift with the field.
+    if (z.owner && !z.owner.dead) { z.x = z.owner.x; z.y = z.owner.y; }
+    else { z.x += (z.vx || 0) * dt; z.y += (z.vy || 0) * dt; }
+    if (z.growth) z.r = Math.min(z.maxR ?? Infinity, z.r + z.growth * dt);
+
+    // A short arming delay makes a zone a warning before it is a wall.
+    if (z.t < (z.arm || 0)) continue;
+    if (dist2(p.x, p.y, z.x, z.y) < z.r * z.r) {
+      z.tick = (z.tick || 0) - dt;
+      if (z.tick <= 0) {
+        z.tick = 0.25;
+        damagePlayer(world, z.dps * 0.25, { source: 'zone' });
+      }
+    }
+  }
+}
+
+/**
+ * Telegraphed beams: a warning line, then a wall of damage along it. The
+ * telegraph is the whole point — it is dodged by reading, not by reacting.
+ */
+function updateBeams(world, dt) {
+  const p = world.player;
+  for (const b of world.beams) {
+    if (b.dead) continue;
+    b.t += dt;
+
+    // Track the target until it fires, then lock.
+    if (b.t < b.telegraph && b.track) {
+      b.angle = Math.atan2(p.y - b.y, p.x - b.x);
+    }
+    if (b.owner && !b.owner.dead) { b.x = b.owner.x; b.y = b.owner.y; }
+
+    if (b.t >= b.telegraph && !b.fired) {
+      b.fired = true;
+      emit(world, { type: 'enemyBeam', x: b.x, y: b.y, angle: b.angle, length: b.length });
+      const rel = distanceToRay(b.x, b.y, b.angle, p.x, p.y);
+      if (rel.along > 0 && rel.along < b.length && rel.perp < b.width / 2 + p.r) {
+        damagePlayer(world, b.damage, { source: 'beam' });
+      }
+    }
+    if (b.t > b.telegraph + (b.linger || 0.35)) b.dead = true;
+  }
 }
 
 function updateEffects(world, dt) {
@@ -1054,8 +1201,8 @@ function hitEnemyWithBullet(world, b, e) {
   const mult = e.shield > 0 ? (b.shieldMult || 1) : 1;
   damageEnemy(world, e, b.damage * mult, { weapon: b, crit: b.crit });
 
-  if (b.lifesteal) healPlayer(world, b.damage * b.lifesteal);
-  if (world.player.stats.lifesteal) healPlayer(world, b.damage * world.player.stats.lifesteal);
+  const steal = (b.lifesteal || 0) + (world.player.stats.lifesteal || 0);
+  if (steal > 0) drainLifesteal(world, b.damage * steal);
 
   if (b.radius) {
     explode(world, b.x, b.y, { radius: b.radius, damage: b.damage * b.splashMult, friendly: true, except: e });
@@ -1142,6 +1289,16 @@ function killEnemy(world, e) {
   if (e.dead) return;
   e.dead = true;
   world.stats.kills++;
+
+  // Hull perks that pay out on a kill. Both are rate-limited the same way
+  // lifesteal is, so a swarm encounter cannot become free healing.
+  const p = world.player;
+  if (p.stats.killHeal) drainLifesteal(world, p.maxHull * p.stats.killHeal);
+  if (p.stats.killShield && p.shield < p.maxShield) {
+    p.shield = Math.min(p.maxShield, p.shield + p.maxShield * p.stats.killShield);
+    p.shieldTimer = Math.max(0, p.shieldTimer - 0.4);
+    emit(world, { type: 'shieldRestored', x: p.x, y: p.y, small: true });
+  }
   world.stats.xpEarned += e.xp;
   world.stats.creditsEarned += e.credits;
 
@@ -1171,7 +1328,6 @@ function killEnemy(world, e) {
   // simply bled out around ring 5 no matter how well it was played. Amounts are
   // a fraction of max hull so they stay relevant at level 20.
   const r = world.rng;
-  const p = world.player;
   if (r.chance(0.30)) dropPickup(world, e.x, e.y, 'energy', 12 + world.threat);
   if (r.chance(0.16)) dropPickup(world, e.x, e.y, 'repair', Math.round(p.maxHull * 0.05));
   if (r.chance(0.14)) dropPickup(world, e.x, e.y, 'shield', Math.round(p.maxShield * 0.25));
@@ -1182,6 +1338,13 @@ function killEnemy(world, e) {
 export function damagePlayer(world, amount, opts = {}) {
   const p = world.player;
   if (p.invuln > 0 || amount <= 0 || world.state !== 'playing') return 0;
+
+  // Static Screen: one hit in every N seconds simply does not land.
+  if (p.stats.negateEvery && p.negateTimer <= 0) {
+    p.negateTimer = p.stats.negateEvery;
+    emit(world, { type: 'negated', x: p.x, y: p.y });
+    return 0;
+  }
 
   let dmg = amount;
   if (p.shield > 0) {
@@ -1205,6 +1368,21 @@ export function damagePlayer(world, amount, opts = {}) {
   }
   world.stats.damageTaken += amount;
   return amount;
+}
+
+/**
+ * Heal from lifesteal, spending the per-second budget.
+ *
+ * Lifesteal is a percentage of damage dealt, and damage compounds across a run
+ * — so uncapped it stops being a trickle and becomes immortality. The budget
+ * keeps it a meaningful trickle at every power level.
+ */
+function drainLifesteal(world, want) {
+  const p = world.player;
+  const got = Math.min(want, p.lifestealBudget);
+  if (got <= 0) return 0;
+  p.lifestealBudget -= got;
+  return healPlayer(world, got);
 }
 
 export function healPlayer(world, amount) {
@@ -1271,7 +1449,7 @@ export function retreat(world) {
 // ---------------------------------------------------------------------------
 
 function compact(world) {
-  for (const key of ['enemies', 'bullets', 'eBullets', 'obstacles', 'pickups', 'drones', 'decoys', 'effects']) {
+  for (const key of ['enemies', 'bullets', 'eBullets', 'obstacles', 'pickups', 'drones', 'decoys', 'effects', 'zones', 'beams']) {
     const arr = world[key];
     if (arr.some(x => x.dead)) world[key] = arr.filter(x => !x.dead);
   }

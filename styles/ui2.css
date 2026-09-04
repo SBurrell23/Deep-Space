@@ -1,0 +1,177 @@
+/* =========================================================================
+   Deep Space — interface revision
+   Top bar readouts, the ship button, the loadout screen, and cursors.
+   ========================================================================= */
+
+/* --- cursors -------------------------------------------------------------
+   Each surface says what the mouse does there. The crosshair is the game's
+   aim; the map uses a pointer only where a jump is actually possible. */
+body { cursor: default; }
+.screen[data-screen="game"] #stage { cursor: crosshair; }
+#mapcanvas { cursor: grab; }
+#mapcanvas:active { cursor: grabbing; }
+/* Set from JS as the pointer moves over the map. */
+#mapcanvas.can-jump { cursor: pointer; }
+#mapcanvas.no-jump {
+  /* A red X: this node exists but you cannot reach it from here. */
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22'%3E%3Cpath d='M5 5l12 12M17 5L5 17' stroke='%23ff5c72' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E") 11 11, not-allowed;
+}
+.btn, .choice, .ship-row, .item-card .btn, .attr-card .btn { cursor: pointer; }
+.btn:disabled, .choice:disabled { cursor: not-allowed; }
+
+/* --- top bar -------------------------------------------------------------- */
+.res-credits b { color: var(--amber-3); }
+
+/* Experience is the run's other resource; it was a 74px sliver. */
+.levelchip { display: inline-flex; align-items: center; gap: 8px; }
+.lc-badge {
+  padding: 2px 8px; border-radius: 3px;
+  background: rgba(23, 162, 184, .16);
+  border: 1px solid var(--cyan-1);
+  font-size: 10px; letter-spacing: .1em; color: var(--steel-4);
+}
+.lc-badge b { color: var(--cyan-3); font-size: 13px; margin-left: 3px; }
+.lc-bar {
+  position: relative; display: inline-block;
+  width: 148px; height: 13px;
+  background: var(--steel-1);
+  border: 1px solid var(--line);
+  border-radius: 3px; overflow: hidden;
+}
+.lc-bar > span {
+  position: absolute; inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--cyan-1), var(--cyan-2));
+  transition: width .25s ease;
+}
+.lc-bar > em {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  font-style: normal; font-size: 9px; color: var(--white);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .9);
+}
+.pointpip { gap: 3px; padding: 2px 9px; }
+
+.hull-bar {
+  display: inline-block; width: 108px; height: 11px;
+  background: var(--steel-1);
+  border: 1px solid var(--line);
+  border-radius: 3px; overflow: hidden;
+}
+.hull-bar > span {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--green-1), var(--green-2));
+  transition: width .2s ease;
+}
+.hull-bar.hurt > span { background: linear-gradient(90deg, var(--amber-1), var(--amber-2)); }
+.hull-bar.critical > span { background: linear-gradient(90deg, var(--red-1), var(--red-3)); }
+
+/* --- the ship button ------------------------------------------------------
+   Checked constantly, so it gets the ship on it and a real hit area, at the
+   top-right of the map rather than tucked into the header. */
+.ship-button {
+  position: absolute; right: 14px; top: 14px;
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 15px 9px 11px;
+  background: linear-gradient(180deg, rgba(23, 32, 58, .96), rgba(11, 17, 34, .96));
+  border: 1px solid var(--line-bright);
+  border-radius: var(--r);
+  color: var(--white); font-family: var(--font);
+  transition: border-color .15s ease, box-shadow .15s ease, transform .1s ease;
+}
+.ship-button:hover { border-color: var(--cyan-2); box-shadow: 0 0 16px rgba(79, 227, 245, .18); }
+.ship-button:active { transform: translateY(1px); }
+.ship-button.attention {
+  border-color: var(--amber-2);
+  box-shadow: 0 0 18px rgba(255, 204, 92, .26);
+}
+.sb-art { display: grid; place-items: center; }
+.sb-art canvas { display: block; }
+.sb-text { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.sb-name { font-size: 12px; letter-spacing: .06em; color: var(--cyan-3); }
+.sb-sub { font-size: 10px; color: var(--steel-4); }
+.ship-button.attention .sb-sub { color: var(--amber-3); }
+/* The node card sits under the ship button rather than fighting it. */
+.node-card { top: 100px; }
+
+/* --- combat HUD: weapons and dash --------------------------------------
+   Grouped bottom-left: the dash is used with the weapons, and at 12x5px on
+   the far side of the screen it was unreadable mid-fight. */
+.hud-bottom-left {
+  position: absolute; left: 14px; bottom: 12px;
+  display: flex; align-items: flex-end; gap: 14px;
+}
+.hud-dash { position: static; display: flex; flex-direction: column; gap: 4px; }
+.hud-dash .dlabel { font-size: 10px; letter-spacing: .14em; color: var(--steel-4); }
+.hud-dash .dpips { display: flex; gap: 4px; }
+.dpip {
+  width: 30px; height: 13px; border-radius: 3px;
+  background: var(--steel-1); border: 1px solid var(--line);
+}
+.dpip.on {
+  background: linear-gradient(180deg, var(--purple-3), var(--purple-2));
+  border-color: var(--purple-3);
+  box-shadow: 0 0 9px rgba(192, 126, 245, .5);
+}
+
+/* --- loadout screen ------------------------------------------------------- */
+.modal-wide { width: min(1120px, 96vw); }
+.inv-wrap { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 22px; }
+
+.inv-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.inv-name { font-size: 15px; color: var(--cyan-3); letter-spacing: .05em; }
+.inv-lvl { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--steel-4); margin-top: 3px; }
+.inv-credits { display: inline-flex; align-items: center; gap: 4px; }
+.inv-credits b { color: var(--amber-3); }
+
+.inv-hull { margin-bottom: 14px; }
+.ih-top { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--steel-4); margin-bottom: 4px; }
+.ih-top b { margin-left: auto; color: var(--white); }
+.ih-track {
+  height: 13px; border-radius: 3px; overflow: hidden;
+  background: var(--steel-1); border: 1px solid var(--line);
+}
+.ih-track > span {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--green-1), var(--green-2));
+  transition: width .2s ease;
+}
+.ih-track > span.hurt { background: linear-gradient(90deg, var(--amber-1), var(--amber-2)); }
+.ih-track > span.critical { background: linear-gradient(90deg, var(--red-1), var(--red-3)); }
+
+.attr-list { display: flex; flex-direction: column; gap: 5px; }
+.attr-row { display: flex; align-items: center; gap: 8px; }
+.ar-name { width: 82px; font-size: 11px; color: var(--steel-4); }
+.ar-track { flex: 1; height: 9px; background: var(--steel-1); border-radius: 4px; overflow: hidden; }
+.ar-track > span { display: block; height: 100%; transition: width .2s ease; }
+.ar-val { width: 22px; text-align: right; font-size: 12px; }
+.inv-spend { margin-top: 10px; width: 100%; }
+
+.slot-label { display: flex; align-items: center; gap: 6px; }
+.slot-label canvas { display: block; }
+.stat-line { align-items: center; gap: 8px; }
+.stat-line canvas { display: block; flex: none; }
+.stat-line > span { flex: 1; }
+
+.ic-price { display: flex; align-items: center; gap: 5px; }
+.ic-price canvas { display: block; }
+.shop-credits { display: inline-flex; align-items: center; gap: 5px; }
+.shop-credits b { color: var(--amber-3); }
+.shop-repair .btn { display: inline-flex; align-items: center; gap: 6px; }
+
+.route-note { color: var(--cyan-3); font-size: 11px; margin-top: 10px; }
+
+/* --- toasts: bottom centre, out of the way of the ship button ------------- */
+.toast-stack {
+  top: auto; right: auto;
+  bottom: 22px; left: 50%;
+  transform: translateX(-50%);
+  align-items: center;
+}
+.toast { animation: toast-up .3s cubic-bezier(.2, .9, .3, 1) both; }
+@keyframes toast-up { from { opacity: 0; transform: translateY(16px); } }
+.toast.out { animation: toast-down .5s ease both; }
+@keyframes toast-down { to { opacity: 0; transform: translateY(12px); } }
+
+/* --- How To Play: a centred column, not a full-bleed wall of text --------- */
+#screen-help .scroll-pane { display: flex; justify-content: center; }
+#screen-help .help-body { width: min(760px, 100%); padding: 0 8px; }

@@ -380,6 +380,120 @@ export const FIRE_PATTERNS = {
   /** A cross, forcing diagonal movement. */
   cross: (e) => [0, Math.PI / 2, Math.PI, -Math.PI / 2].map(a => bullet(e, a)),
 
+  // --- area denial -----------------------------------------------------------
+  // Zones are space you cannot occupy. They ask a different question from a
+  // bullet: not "can you dodge this" but "where are you going to stand".
+
+  /** Drops a burning patch where the player is standing. Punishes camping. */
+  burn_zone: (e, world) => [{
+    x: world.player.x, y: world.player.y, angle: 0,
+    zone: { r: 96, dps: 16, life: 5.5, arm: 0.9, kind: 'burn' },
+  }],
+
+  /** A growing pool of caustic gas, laid ahead of the player's drift. */
+  spreading_pool: (e, world) => [{
+    x: world.player.x + world.player.vx * 0.5,
+    y: world.player.y + world.player.vy * 0.5,
+    angle: 0,
+    zone: { r: 54, maxR: 168, growth: 26, dps: 13, life: 7.5, arm: 0.8, kind: 'gas' },
+  }],
+
+  /** A field the enemy carries with it — you cannot fight it up close. */
+  repulsor_field: (e) => [{
+    x: e.x, y: e.y, angle: 0,
+    zone: { r: 118, dps: 20, life: 5, arm: 0.4, anchored: true, kind: 'field' },
+  }],
+
+  /** Three patches across the lane, forcing a route choice. */
+  minefield_zones: (e, world) => [0.25, 0.5, 0.75].map(f => ({
+    x: e.x - 60, y: world.h * f, angle: 0,
+    zone: { r: 82, dps: 15, life: 6.5, arm: 1.0, vx: -30, kind: 'burn' },
+  })),
+
+  // --- telegraphed beams -----------------------------------------------------
+  // A wall of damage announced a beat before it lands. Read it, then move.
+
+  /** One heavy tracking lance. */
+  lance_beam: (e, world) => [{
+    angle: aimAt(e, world),
+    beam: { telegraph: 1.15, width: 26, damage: 3.2, length: 1300 },
+  }],
+
+  /** A wider, slower, much heavier cut. */
+  siege_beam: (e, world) => [{
+    angle: aimAt(e, world),
+    beam: { telegraph: 1.7, width: 54, damage: 4.6, length: 1300, linger: 0.5 },
+  }],
+
+  /** Two beams bracketing the player — you must move, not stand still. */
+  bracket_beams: (e, world) => {
+    const a = aimAt(e, world);
+    return [-0.30, 0.30].map(o => ({
+      angle: a + o,
+      beam: { telegraph: 1.0, width: 20, damage: 2.6, length: 1300, track: false },
+    }));
+  },
+
+  /** A locked cross that does not track. Positional, not reactive. */
+  cross_beams: (e) => [0, Math.PI / 2, Math.PI, -Math.PI / 2].map(a => ({
+    angle: a,
+    beam: { telegraph: 1.25, width: 22, damage: 2.8, length: 1300, track: false },
+  })),
+
+  // --- walls -----------------------------------------------------------------
+
+  /** Two walls with offset gaps: find the first, then immediately the second. */
+  double_wall: (e, world) => {
+    const rows = 9;
+    const rnd = e.mem.rng ? e.mem.rng : Math.random;
+    const gapA = Math.floor(rnd() * rows);
+    let gapB = Math.floor(rnd() * rows);
+    if (Math.abs(gapB - gapA) < 2) gapB = (gapA + 4) % rows;
+    const out = [];
+    for (let i = 0; i < rows; i++) {
+      if (i !== gapA && i !== gapA + 1) {
+        out.push(bullet(e, Math.PI, { y: (i + 0.5) * (world.h / rows), x: e.x, sprite: 'eb_wave' }));
+      }
+      if (i !== gapB && i !== gapB + 1) {
+        out.push(bullet(e, Math.PI, {
+          y: (i + 0.5) * (world.h / rows), x: e.x, sprite: 'eb_wave', delay: 0.85,
+        }));
+      }
+    }
+    return out;
+  },
+
+  /** Closes in from the top and bottom edges, leaving the middle last. */
+  closing_wall: (e, world) => {
+    const out = [];
+    for (let i = 0; i < 5; i++) {
+      const t = i * 0.14;
+      out.push(bullet(e, Math.PI, { y: 20 + i * 26, x: e.x, delay: t, sprite: 'eb_wave' }));
+      out.push(bullet(e, Math.PI, { y: world.h - 20 - i * 26, x: e.x, delay: t, sprite: 'eb_wave' }));
+    }
+    return out;
+  },
+
+  // --- missiles --------------------------------------------------------------
+
+  /** Four hard-turning missiles. */
+  homing4: (e, world) => {
+    const a = aimAt(e, world);
+    return [-0.5, -0.18, 0.18, 0.5].map(o => bullet(e, a + o, {
+      homing: true, turnRate: 2.6, speed: (e.bulletSpeed || 280) * 0.7,
+      sprite: 'eb_homing', life: 6,
+    }));
+  },
+
+  /** A long, staggered stream of seekers. Attrition rather than a burst. */
+  missile_barrage: (e, world) => {
+    const a = aimAt(e, world);
+    return Array.from({ length: 7 }, (_, i) => bullet(e, a + (i % 2 ? 0.35 : -0.35), {
+      delay: i * 0.22, homing: true, turnRate: 2.1,
+      speed: (e.bulletSpeed || 280) * 0.66, sprite: 'eb_homing', life: 6.5,
+    }));
+  },
+
   /** A dense aimed cone, short range. */
   shotgun: (e, world) => {
     const a = aimAt(e, world);

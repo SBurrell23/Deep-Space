@@ -33,7 +33,7 @@ export function initSettings(gameProfile, saveFn) {
     refresh();
   });
 
-  bindGameOption('#opt-confirm-jump', 'confirmJump');
+  bindGameOption('#opt-rotate', 'rotateShip');
   bindGameOption('#opt-autofire', 'autofireDefault');
 
   root.addEventListener('click', e => {
@@ -91,7 +91,7 @@ export function refresh() {
   // Defaults matter here: a checkbox that renders false while the behaviour is
   // true means the control does nothing until you toggle it twice.
   const OPTIONS = [
-    ['#opt-confirm-jump', 'confirmJump', false],
+    ['#opt-rotate', 'rotateShip', false],
     ['#opt-autofire', 'autofireDefault', true],
   ];
   for (const [sel, key, dflt] of OPTIONS) {

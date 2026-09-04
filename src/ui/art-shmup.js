@@ -805,6 +805,25 @@ export const SHMUP_ART = {
     '..kkkkkkkk..',
   ]},
 
+  /* UI credits mark (14x14): the pickup's coin, tightened into a flat icon -
+     no glow rim, hard outline, three stacked faces so it still reads at 1x. */
+  icon_credits: { pal: { ...P }, rows: [
+    '.....kkkk.....',
+    '...kkAAAAkk...',
+    '..kAAwwwwAAk..',
+    '..kAAAAAAAAk..',
+    '..koaaaaaaok..',
+    '.kkAAAAAAAAkk.',
+    '.kAwwAAAAAAAk.',
+    '.kaAAAAAAAAak.',
+    '.koaaaaaaaaok.',
+    'kkAAAAAAAAAAkk',
+    'kAwwAAAAAAAAAk',
+    'kaAAAAAAAAAAak',
+    'koaaaaaaaaaaok',
+    '.kkooooooookk.',
+  ]},
+
   pu_shield: { pal: { ...P }, rows: [
     '...kkkkkk...',
     '.kkQQQQQQkk.',

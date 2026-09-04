@@ -203,7 +203,7 @@ function renderShipDetail(profile, id, isUnlocked, onLaunch) {
 
   pane.append(el('button.btn.btn-primary.launch-btn', {
     onclick: () => { play('confirm'); onLaunch(id, seedInput.value.trim() || null); },
-    // Several hulls are named "The Kestrel" — don't stack articles.
+    // A hull whose name already starts with an article must not get another.
   }, el('span', { text: /^the\s/i.test(ship.name) ? `Launch ${ship.name}` : `Launch the ${ship.name}` })));
 }
 

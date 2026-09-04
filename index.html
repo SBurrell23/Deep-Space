@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#05070f">
 <link rel="stylesheet" href="styles/main.css">
 <link rel="stylesheet" href="styles/action.css">
+<link rel="stylesheet" href="styles/ui2.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%2305070f'/><rect x='2' y='7' width='9' height='3' fill='%234fe3f5'/><rect x='11' y='6' width='3' height='5' fill='%2317a2b8'/><rect x='4' y='4' width='4' height='2' fill='%238494b8'/><rect x='4' y='11' width='4' height='2' fill='%238494b8'/></svg>">
 </head>
 <body>
@@ -92,12 +93,12 @@
     <header class="topbar" id="topbar">
       <div class="topbar-left">
         <button class="btn btn-ghost btn-icon" data-action="pause-menu" title="Menu (Esc)">&#9776;</button>
-        <span class="res" id="res-credits" title="Credits"><i data-icon="icon_scrap"></i><b>0</b></span>
+        <span class="res res-credits" id="res-credits" title="Credits"><i data-icon="icon_credits"></i><b>0</b></span>
         <span class="levelchip" id="level-chip" title="Level and experience">
-          <b id="level-num">1</b>
-          <span class="xpbar"><span id="xp-fill"></span></span>
+          <span class="lc-badge">LV <b id="level-num">1</b></span>
+          <span class="lc-bar"><span id="xp-fill"></span><em id="xp-text"></em></span>
         </span>
-        <span class="pointpip" id="point-pip" hidden title="Unspent attribute points">+<b id="point-count">0</b></span>
+        <span class="pointpip" id="point-pip" hidden title="Unspent attribute points">+<b id="point-count">0</b> to spend</span>
       </div>
       <div class="topbar-mid">
         <span class="node-label" id="node-label">Deep Space</span>
@@ -105,7 +106,7 @@
       </div>
       <div class="topbar-right">
         <span class="hull-readout" id="hull-readout"></span>
-        <button class="btn btn-ghost btn-small" data-action="inventory" title="Ship &amp; loadout (I)">Ship</button>
+        <span class="hull-bar" id="hull-bar"><span id="hull-fill"></span></span>
         <button class="btn btn-ghost btn-icon" data-action="settings" title="Sound &amp; settings">&#9834;</button>
       </div>
     </header>
@@ -132,10 +133,11 @@
           <div class="bb-name" id="bb-name"></div>
           <div class="bb-track"><span id="bb-fill"></span></div>
         </div>
-        <div class="hud-weapons" id="hud-weapons"></div>
+        <div class="hud-bottom-left">
+          <div class="hud-weapons" id="hud-weapons"></div>
+          <div class="hud-dash" id="hud-dash"></div>
+        </div>
         <div class="hud-abilities" id="hud-abilities"></div>
-        <div class="hud-dash" id="hud-dash"></div>
-        <button class="btn btn-small btn-danger hud-flee" data-action="flee" title="Disengage (you keep nothing)">Disengage</button>
         </div>
       </div>
 
@@ -147,6 +149,15 @@
           <button class="btn btn-small" data-action="zoom-out" title="Zoom out">&minus;</button>
           <button class="btn btn-small" data-action="recentre" title="Centre on your position">Centre</button>
         </div>
+        <!-- The loadout is checked constantly, so it gets a real target with
+             the ship on it rather than a word in the corner of the header. -->
+        <button class="ship-button" id="ship-button" data-action="inventory" title="Ship &amp; loadout — I">
+          <span class="sb-art" id="sb-art"></span>
+          <span class="sb-text">
+            <span class="sb-name" id="sb-name">Ship</span>
+            <span class="sb-sub" id="sb-sub"></span>
+          </span>
+        </button>
         <div class="node-card" id="node-card" hidden></div>
       </div>
 
@@ -194,8 +205,8 @@
       </div>
       <hr class="rule">
       <div class="setting-row setting-check">
-        <input type="checkbox" id="opt-confirm-jump">
-        <label for="opt-confirm-jump">Confirm before jumping</label>
+        <input type="checkbox" id="opt-rotate">
+        <label for="opt-rotate">Ship turns to face the cursor</label>
       </div>
       <div class="setting-row setting-check">
         <input type="checkbox" id="opt-autofire">

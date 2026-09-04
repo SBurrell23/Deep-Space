@@ -27,6 +27,9 @@ export function createShip(shipId, rng) {
     equipped: Object.fromEntries(SLOT_IDS.map(s => [s, null])),
     inventory: [],
 
+    // Flight model preference, mirrored from the profile at run start.
+    rotate: false,
+
     hull: 1,        // replaced by recompute below
     shield: 0,
     credits: 60,
