@@ -16,6 +16,7 @@
 
 import { RNG } from '../core/rng.js';
 import * as U from './universe.js';
+import { ECONOMY_TUNING as EC } from './balance.js';
 import * as S from './ship.js';
 import { createWorld, update as stepWorld, retreat as retreatWorld, WORLD_W, WORLD_H } from './sim.js';
 import { getEncounter, ENCOUNTER_TYPES } from './encounters/index.js';
@@ -298,7 +299,8 @@ function buildRewards(run, world) {
   const xp = Math.round(baseXp + killXp);
 
   const credits = Math.round(
-    (world.stats.creditsEarned + (12 + threat * 6) * completion) * (mult.creditsMult ?? 1)
+    (world.stats.creditsEarned
+      + (EC.creditsPerNodeBase + threat * EC.creditsPerNodeThreat) * completion) * (mult.creditsMult ?? 1)
       * (1 + (run.ship.stats.creditsPct || 0)));
 
   const crateCount = (mult.crates ?? 0) + (world.stats.crates || 0)
@@ -558,7 +560,7 @@ function rollShopStock(run, node) {
     }));
   }
   const repairCost = Math.max(1, Math.round(
-    (run.ship.stats.maxHull - run.ship.hull) * 1.6 * (1 - (run.ship.stats.repairDiscount || 0))));
+    (run.ship.stats.maxHull - run.ship.hull) * EC.repairCostPerHull * (1 - (run.ship.stats.repairDiscount || 0))));
   return { items, repairCost, repaired: false };
 }
 

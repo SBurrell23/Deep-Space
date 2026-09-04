@@ -8,6 +8,8 @@
  * number updates for free, and the tests can assert the whole pipeline.
  */
 
+import { DEFENCE_TUNING as D } from './balance.js';
+
 export const ATTRIBUTES = [
   {
     id: 'hull', name: 'Hull', icon: 'icon_hull', accent: '#5cf59b',
@@ -123,6 +125,8 @@ export function newProgress(startingAttributes) {
  * Flat bonuses land before percentages so a +10 hull plate is worth the same
  * whether you find it early or late.
  */
+function clampv(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
 export function deriveStats(attributes, gearMods = {}) {
   const a = attributes;
   const m = gearMods;
@@ -143,6 +147,13 @@ export function deriveStats(attributes, gearMods = {}) {
     // Recharge accelerates with the attribute but the delay floor keeps a hit
     // meaningful — otherwise high shields removes damage from the game.
     shieldRegen: (2.5 + 0.55 * a.shields + add('shieldRegen') * sysScale) * mul('shieldRegenPct'),
+    // The fraction of every hit that reaches the hull even at full shield.
+    // Without it a shield large enough to eat a whole fight makes that fight
+    // free, and a run of free fights has no stakes and nothing to spend gold
+    // on. Investing in Shields buys a tighter seal, never a perfect one.
+    shieldLeak: clampv(
+      D.shieldLeakBase - D.shieldLeakPerShields * a.shields - add('shieldSeal') * sysScale * 0.012,
+      D.shieldLeakFloor, D.shieldLeakBase),
     shieldDelay: Math.max(1.4, 3.6 - 0.07 * a.shields - add('shieldDelay') * sysScale),
 
     damageMult: (1 + 0.11 * (a.weapons - 1)) * mul('damagePct'),

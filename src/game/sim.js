@@ -15,6 +15,7 @@ import { Spawner } from './spawner.js';
 import { Corridor, seedObstacles } from './terrain.js';
 import { resolveWeapon, shotInterval } from './weapons.js';
 import { ENEMIES } from './enemies.js';
+import { DEFENCE_TUNING } from './balance.js';
 
 export const WORLD_W = 960;
 export const WORLD_H = 540;
@@ -31,6 +32,9 @@ const CULL = 140;
  * you build up — past the cap the oldest is retired to make room.
  */
 const MAX_DRONES = 4;
+
+/** How many times an enemy may circle back before it is allowed to leave. */
+const MAX_PASSES = 2;
 
 // ---------------------------------------------------------------------------
 // World construction
@@ -85,10 +89,13 @@ export function createWorld({ encounter, threat, ship, rng, seed = 0, width = WO
       abilitiesUsed: 0, dashes: 0, perfectDodges: 0, terrainHits: 0,
       // Spawned vs destroyed vs escaped: an enemy that flies off the field is
       // not a kill, and a 'clear' that pays in full for zero kills is a lie.
-      spawned: 0, escaped: 0, rammed: 0, bossKills: 0,
+      spawned: 0, escaped: 0, rounded: 0, rammed: 0, bossKills: 0,
       // Per-slot trigger pulls, so "clear this without your secondary" can
       // actually be checked.
       primaryShots: 0, secondaryShots: 0, tertiaryShots: 0,
+      // Where the hull came back from. Damage taken means nothing on its own
+      // if it is all healed before the fight ends.
+      healed: 0, healedPickup: 0, healedLifesteal: 0, healedAbility: 0,
     },
   };
 
@@ -187,6 +194,7 @@ function createPlayer(ship) {
     // damage dealt scales with DPS, and DPS compounds across a run, so an
     // unbounded 5% turned into full sustain by the mid game.
     lifestealBudget: 0,
+    lifestealSpent: 0,
     negateTimer: 0,
   };
 }
@@ -324,8 +332,11 @@ function updatePlayer(world, dt) {
   }
 
   // Lifesteal budget: at most this fraction of max hull healed per second,
-  // however much damage is dealt.
-  const lsCap = p.maxHull * 0.03;
+  // however much damage is dealt. At 3%/sec a forty-second fight refunded a
+  // hull and a fifth, so lifesteal was not sustain, it was immunity — it paid
+  // back 91-99% of everything a deep fight could do to you. At 0.8% the same
+  // fight refunds about a third of a hull, which is a build, not an answer.
+  const lsCap = p.maxHull * DEFENCE_TUNING.lifestealPerSecond;
   p.lifestealBudget = Math.min(lsCap, p.lifestealBudget + lsCap * dt);
   if (s.negateEvery) p.negateTimer = Math.max(0, p.negateTimer - dt);
 
@@ -590,7 +601,7 @@ function activateAbility(world, ab) {
 
   switch (ab.id) {
     case 'repair_pulse':
-      healPlayer(world, p.maxHull * 0.18 * (p.stats.repairPct || 1));
+      healPlayer(world, p.maxHull * 0.18 * (p.stats.repairPct || 1), 'ability');
       break;
     case 'emp_burst': {
       let cleared = 0;
@@ -809,8 +820,51 @@ function updateEnemies(world, dt) {
       if (e.holdX != null) e.holdX = Math.min(e.holdX, world.w * 0.45);
     }
 
-    // Cull once it has left the field on either side and isn't coming back.
+    // A capital ship does not get to wander off. Culling one for leaving the
+    // field resolved the boss objective as a win: `boss_famine_late_model`
+    // ended in three seconds with nothing killed, because the reaper flew out
+    // of the left edge and the objective saw no boss alive. Anything the
+    // objective is watching gets turned around instead.
+    if (e.isBoss || e.tag) {
+      // Contained on BOTH sides. Clamping only the left let capital ships
+      // drift away to the right instead — one was found at x=66961 on a field
+      // a thousand wide — where nothing could reach it and the encounter could
+      // never end. That was most of the stalled fights.
+      if (e.x < world.w * 0.12) {
+        e.x = world.w * 0.12;
+        e.vx = Math.abs(e.vx || 0);
+        if (e.holdX != null) e.holdX = Math.max(e.holdX, world.w * 0.35);
+      } else if (e.x > world.w * 0.94) {
+        e.x = world.w * 0.94;
+        e.vx = -Math.abs(e.vx || 0);
+        if (e.holdX != null) e.holdX = Math.min(e.holdX, world.w * 0.75);
+      }
+      e.y = clamp(e.y, 16, world.h - 16);
+      continue;
+    }
+
     if (e.x < -CULL || e.x > world.w + CULL * 4) {
+      // When the objective is to kill them, they do not get to simply leave.
+      //
+      // This was the single biggest reason fights cost nothing: measured at
+      // threat 8, encounters were routinely resolving with a handful of kills
+      // out of dozens spawned — `splitter_bloom` killed 1 of 17, and
+      // `outrun_the_swarm` 3 of 81 — because the rest streamed past the player
+      // and off the left edge. You did not beat the fight, you outlasted it.
+      // Now they come round for another pass, and a clear means a clear.
+      //
+      // Objectives you are running FROM rather than through are exempt: being
+      // overtaken is the point of a chase.
+      // Bounded, or an enemy the player cannot reach loops forever and the
+      // encounter never ends: unbounded wrapping stalled 5-8% of deep fights.
+      if (killObjective(world) && e.x < 0 && (e.passes || 0) < MAX_PASSES) {
+        e.x = world.w + 60 + world.rng.float(0, 90);
+        e.y = clamp(world.rng.float(world.h * 0.12, world.h * 0.88), 20, world.h - 20);
+        e.holdX = null;
+        e.passes = (e.passes || 0) + 1;
+        world.stats.rounded++;
+        continue;
+      }
       e.dead = true;
       e.escaped = true;
       world.stats.escaped++;
@@ -1096,7 +1150,7 @@ function collect(world, pk) {
   world.stats.pickupsTaken++;
   switch (pk.kind) {
     case 'energy': p.energy = Math.min(p.maxEnergy, p.energy + pk.amount); break;
-    case 'repair': healPlayer(world, pk.amount); break;
+    case 'repair': healPlayer(world, pk.amount, 'pickup'); break;
     case 'shield': p.shield = Math.min(p.maxShield, p.shield + pk.amount); break;
     case 'credits': world.stats.creditsEarned += pk.amount; break;
     case 'xp': world.stats.xpEarned += pk.amount; break;
@@ -1311,7 +1365,7 @@ function resolveCollisions(world, dt) {
     // hull was free by ring ten. Scale with the node's threat, then cap any one
     // impact at a slice of the hull so an early field cannot cascade into a
     // death from full.
-    const rock = Math.min(o.contact * (1 + world.threat * 0.075), p.maxHull * 0.09);
+    const rock = Math.min(o.contact * (1 + world.threat * 0.075), p.maxHull * 0.07);
     damagePlayer(world, rock * reduce, { source: 'obstacle' });
     o.dead = true;
     emit(world, { type: 'explode', x: o.x, y: o.y, size: o.size });
@@ -1458,7 +1512,13 @@ function killEnemy(world, e, opts = {}) {
   // a fraction of max hull so they stay relevant at level 20.
   const r = world.rng;
   if (r.chance(0.30)) dropPickup(world, e.x, e.y, 'energy', 12 + world.threat);
-  if (r.chance(0.16)) dropPickup(world, e.x, e.y, 'repair', Math.round(p.maxHull * 0.05));
+  // Repair drops were 16% of every kill at 5% of max hull. A thirty-kill fight
+  // therefore handed back a quarter of the hull bar for free, which is most of
+  // the reason four fights in five cost nothing at all. Rarer and smaller: a
+  // lucky reprieve rather than an income stream.
+  if (r.chance(DEFENCE_TUNING.repairDropChance)) {
+    dropPickup(world, e.x, e.y, 'repair', Math.round(p.maxHull * DEFENCE_TUNING.repairDropFraction));
+  }
   if (r.chance(0.14)) dropPickup(world, e.x, e.y, 'shield', Math.round(p.maxShield * 0.25));
   if (r.chance(0.22)) dropPickup(world, e.x, e.y, 'credits', Math.round(e.credits * 0.5));
   if (e.elite || e.isBoss || r.chance(0.05)) dropPickup(world, e.x, e.y, 'crate', 1);
@@ -1477,7 +1537,11 @@ export function damagePlayer(world, amount, opts = {}) {
 
   let dmg = amount;
   if (p.shield > 0) {
-    const absorbed = Math.min(p.shield, dmg);
+    // A shield stops most of a hit, never all of it. Full absorption made
+    // every non-lethal fight free — 80% of them cost no hull at all — so
+    // damage was either nothing or death with nothing in between.
+    const leak = clamp(p.stats.shieldLeak ?? 0.18, 0, 1);
+    const absorbed = Math.min(p.shield, dmg * (1 - leak));
     p.shield -= absorbed;
     dmg -= absorbed;
     emit(world, { type: 'playerShieldHit', x: p.x, y: p.y });
@@ -1508,18 +1572,32 @@ export function damagePlayer(world, amount, opts = {}) {
  */
 function drainLifesteal(world, want) {
   const p = world.player;
-  const got = Math.min(want, p.lifestealBudget);
+  const left = p.maxHull * DEFENCE_TUNING.lifestealPerEncounter - p.lifestealSpent;
+  const got = Math.min(want, p.lifestealBudget, Math.max(0, left));
   if (got <= 0) return 0;
   p.lifestealBudget -= got;
-  return healPlayer(world, got);
+  const healed = healPlayer(world, got, 'lifesteal');
+  p.lifestealSpent += healed;
+  return healed;
 }
 
-export function healPlayer(world, amount) {
+export function healPlayer(world, amount, source = 'other') {
   const p = world.player;
+  // Every source draws on the same allowance. See balance.js: capping them one
+  // at a time simply moved the healing to whichever was left uncapped.
+  const left = p.maxHull * DEFENCE_TUNING.healPerEncounter - (world.stats.healed || 0);
+  const give = Math.min(amount, Math.max(0, left));
+  if (give <= 0) return 0;
   const before = p.hull;
-  p.hull = Math.min(p.maxHull, p.hull + amount);
-  if (p.hull > before) emit(world, { type: 'heal', x: p.x, y: p.y, amount: p.hull - before });
-  return p.hull - before;
+  p.hull = Math.min(p.maxHull, p.hull + give);
+  const got = p.hull - before;
+  if (got > 0) {
+    world.stats.healed += got;
+    const key = { pickup: 'healedPickup', lifesteal: 'healedLifesteal', ability: 'healedAbility' }[source];
+    if (key) world.stats[key] += got;
+    emit(world, { type: 'heal', x: p.x, y: p.y, amount: got });
+  }
+  return got;
 }
 
 // ---------------------------------------------------------------------------
@@ -1559,6 +1637,12 @@ function checkObjective(world) {
     world.state = 'lost';
     world.outcome = 'timeout';
   }
+}
+
+/** Objectives where leaving the field would be a way of winning by default. */
+function killObjective(world) {
+  const kind = world.encounter.objective?.kind ?? 'clear';
+  return kind === 'clear' || kind === 'boss' || kind === 'destroy';
 }
 
 /**

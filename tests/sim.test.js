@@ -1,6 +1,7 @@
 import { describe, it, assert } from './harness.js';
 import { RNG } from '../src/core/rng.js';
 import * as S from '../src/game/ship.js';
+import { DEFENCE_TUNING } from '../src/game/balance.js';
 import {
   createWorld, update, drainEvents, blankInput, retreat,
   damagePlayer, healPlayer, damageEnemy, explode, dropPickup,
@@ -142,14 +143,21 @@ describe('simulation — player', () => {
 });
 
 describe('simulation — damage', () => {
-  it('spends the shield before the hull', () => {
+  it('spends the shield on most of a hit and leaks the rest to the hull', () => {
+    // A shield stops most of a hit, never all of it: full absorption made any
+    // non-lethal fight completely free, so damage was either nothing or death.
     const { world } = makeWorld(SKIRMISH);
     const p = world.player;
     p.shield = 40;
     const hull = p.hull;
+    const leak = p.stats.shieldLeak;
+    assert.ok(leak > 0 && leak < 0.5, `shieldLeak is ${leak}`);
+
     damagePlayer(world, 25);
-    assert.close(p.shield, 15);
-    assert.equal(p.hull, hull, 'hull should be untouched while the shield holds');
+    assert.close(p.shield, 40 - 25 * (1 - leak), 0.001);
+    assert.close(p.hull, hull - 25 * leak, 0.001);
+    assert.greater(40 - p.shield, hull - p.hull,
+      'the shield still has to do the bulk of the work');
   });
 
   it('overflows into the hull once the shield breaks', () => {
@@ -181,11 +189,19 @@ describe('simulation — damage', () => {
     assert.equal(world.player.hull, 0, 'hull should floor at zero, not go negative');
   });
 
-  it('never heals above maximum', () => {
+  it('never heals above maximum, and never past the fight-s allowance', () => {
     const { world } = makeWorld(SKIRMISH);
-    world.player.hull = 10;
+    const p = world.player;
+    p.hull = 10;
     healPlayer(world, 1e6);
-    assert.equal(world.player.hull, world.player.maxHull);
+    assert.lessOrEqual(p.hull, p.maxHull, 'healing must not overfill the bar');
+    // One allowance for every source together, or capping lifesteal simply
+    // moves the healing to pickups and abilities.
+    assert.lessOrEqual(p.hull - 10, p.maxHull * DEFENCE_TUNING.healPerEncounter + 0.001,
+      'a single fight cannot be patched indefinitely');
+    const after = p.hull;
+    healPlayer(world, 1e6);
+    assert.close(p.hull, after, 0.001, 'and the allowance does not refresh');
   });
 
   it('applies enemy armour and support auras', () => {
@@ -333,6 +349,36 @@ describe('simulation — entities', () => {
     assert.equal(world.drones.filter(d => !d.dead).length, 0,
       'drones must expire rather than escort you for the rest of the fight');
     assert.ok(ship);
+  });
+
+  it('will not let a capital ship win the fight by flying away', () => {
+    // A boss culled for leaving the field satisfied the boss objective: no boss
+    // alive, nothing pending, therefore won. boss_famine_late_model ended in
+    // three seconds with nothing killed.
+    const { world } = makeWorld({
+      id: 'runaway_boss', name: 'Runaway', type: 'boss',
+      objective: { kind: 'boss' },
+      waves: [{ at: 0, spawn: [{ id: 'reaper', count: 1, elite: true, formation: 'column', tag: 'boss' }] }],
+    }, { threat: 8 });
+
+    // This is about the boss, not the pilot: an undriven level-1 ship would
+    // simply be shot to pieces before the question could be asked.
+    world.player.hull = world.player.maxHull = 1e6;
+
+    // A boss that would open the encounter alone gets a delayed arrival behind
+    // a screen of escorts, so give it time to actually turn up.
+    run(world, 11);
+    const boss = world.enemies.find(e => e.tag === 'boss');
+    assert.ok(boss, 'the boss should have spawned');
+
+    // Shove it far off the left edge, where anything else would be culled.
+    boss.x = -600;
+    boss.vx = -400;
+    run(world, 3);
+
+    assert.equal(boss.dead, false, 'a capital ship must not be culled for leaving');
+    assert.equal(world.state, 'playing', 'and it must not hand over the win');
+    assert.greater(boss.x, -100, 'it should be turned back into the arena');
   });
 
   it('does not leak entities over a long fight', () => {

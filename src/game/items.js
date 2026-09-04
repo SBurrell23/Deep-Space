@@ -118,6 +118,7 @@ export const BASES = {
     { id: 'reactive_screen', name: 'Reactive Screen', desc: 'Punishes anything that touches it.', mods: { shield: [12, 20], thorns: [4, 9] } },
     { id: 'siphon_screen', name: 'Siphon Screen', desc: 'Bleeds energy off incoming fire.', mods: { shield: [12, 20], energyRegen: [1.6, 3.0] } },
     { id: 'phase_screen', name: 'Phase Screen', desc: 'Shrugs off collisions.', mods: { shield: [14, 22], contactArmour: [0.25, 0.45] } },
+    { id: 'sealed_field', name: 'Sealed Field', desc: 'Almost nothing gets through it.', mods: { shield: [10, 18], shieldSeal: [3.0, 5.5] } },
   ],
   reactor: [
     { id: 'cell_bank', name: 'Cell Bank', desc: 'A big, dumb battery.', mods: { energy: [22, 34] } },
@@ -134,6 +135,7 @@ export const BASES = {
     { id: 'nanoweave', name: 'Nanoweave Hull', desc: 'Repairs mean more.', mods: { hull: [12, 20], repairPct: [0.20, 0.38] } },
     { id: 'spiked_hull', name: 'Ram Prow', desc: 'Built for hitting things.', mods: { hull: [14, 24], contactArmour: [0.35, 0.6], thorns: [5, 11] } },
     { id: 'scavenger_hull', name: 'Scavenger Frame', desc: 'Salvage rigging bolted on.', mods: { hull: [10, 18], creditsPct: [0.10, 0.20], pickupRange: [14, 26] } },
+    { id: 'lined_hull', name: 'Lined Bulkheads', desc: 'Catches what the screen lets past.', mods: { hull: [12, 20], shieldSeal: [2.0, 4.0] } },
   ],
   computer: [
     { id: 'targeting', name: 'Targeting Computer', desc: 'Finds the seams in armour.', mods: { crit: [0.05, 0.10] } },
@@ -169,6 +171,7 @@ export const BASES = {
 export const AFFIXES = [
   { id: 'hardened', name: 'Hardened', mods: { hull: [8, 16] } },
   { id: 'shielded', name: 'Shielded', mods: { shield: [7, 14] } },
+  { id: 'sealed', name: 'Sealed', mods: { shieldSeal: [1.4, 2.8] } },
   { id: 'charged', name: 'Charged', mods: { energy: [8, 16] } },
   { id: 'swift', name: 'Swift', mods: { speed: [7, 14] } },
   { id: 'honed', name: 'Honed', mods: { damagePct: [0.05, 0.11] } },
@@ -374,6 +377,7 @@ export const MOD_LABELS = {
   shield: ['Max shield', 'flat'], shieldPct: ['Max shield', 'pct'],
   shieldRegen: ['Shield regen', 'flat1'], shieldRegenPct: ['Shield regen', 'pct'],
   shieldDelay: ['Shield delay', 'flat1neg'],
+  shieldSeal: ['Shield seal', 'flat1'],
   energy: ['Max energy', 'flat'], energyPct: ['Max energy', 'pct'],
   energyRegen: ['Energy regen', 'flat1'], energyRegenPct: ['Energy regen', 'pct'],
   energyCost: ['Energy cost', 'pctneg'],

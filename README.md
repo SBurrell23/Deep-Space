@@ -88,12 +88,45 @@ The version on the title screen is the release number. Bump it in `index.html` o
 
 ## Honest state
 
-**The Master Fleet is currently out of reach.** Over eighteen headless runs at pilot skill 0.75 and 0.95 the bot won none: it reaches level 20 and ring 11 but averages 13–17 nodes before dying. The cause is compounding, not any single fight — the balance sweep puts per-encounter death between 11% and 31% from threat 8 upward, and a run needs on the order of thirty nodes to reach the rim. Surviving thirty nodes at 15% each is a four-percent proposition.
+**The Master Fleet is reachable, but only just.** Over twelve headless runs at
+pilot skill 0.75 the synthetic pilot won two — 17%, against 0% before the v2.5
+balance pass. A winning run is about 25 minutes of combat and roughly 38 minutes
+of wall clock, though the bot beelines for the rim the moment it can and a human
+who explores will take considerably longer. The two-hour figure remains a design
+target, not a measured one.
 
-The v2.4 pass on drones and ability rarity moved the deep end further out, not closer: deaths at threat 16–20 went from 17–25% to 29–31%. That was the requested direction for those two systems, but it is worth knowing which way the needle went.
+What the v2.5 pass found, in the order it mattered:
 
-Fixing it means one of three things, and they are design calls rather than tuning ones: cut the per-encounter death rate to about 5% (which makes every fight noticeably softer), shorten the route to the Master Fleet, or make death less than total. The numbers to argue with are in `tests/balance.js` and `tests/autoplay.js`.
+* **Most enemies never had to be fought.** In a typical encounter the majority
+  of the spawn flew past the player and off the left edge, where it was culled:
+  `splitter_bloom` was resolving with 1 kill out of 17 spawned, `outrun_the_swarm`
+  with 3 out of 81. You did not beat a fight, you outlasted it. Enemies now
+  circle back for up to two more passes when the objective is to destroy them.
+* **Nothing a fight did to you stuck.** 79-94% of fights cost no hull at all,
+  because a shield large enough to absorb a fight refilled for free afterwards,
+  and 88-103% of the damage that did land was healed back before the fight ended.
+  Shields leak now, and all in-fight healing draws on one allowance.
+* **Capital ships could win the fight by leaving.** A boss culled for drifting
+  off satisfied the boss objective — `boss_famine_late_model` ended in three
+  seconds with nothing killed. Others drifted thousands of pixels to the right,
+  out of reach, and stalled the encounter instead.
 
-Winning runs, when the bot used to find them, took 25–40 minutes of combat and perhaps an hour of wall clock. A human explores more of the map than a bot that beelines for the rim, so a real playthrough runs longer — but the two-hour figure is a design target, not a measured one.
+Where the numbers sit now, measured with `tests/balance.js` and `tests/curve.js`:
+
+| | before | after |
+|---|---|---|
+| fights costing no hull | 79-94% | 11-54% |
+| damage healed back mid-fight | 88-103% | 14-44% |
+| median fight length | 26-56s | 42-67s |
+| survivability, shallow to deep | x1.20 | x0.96 |
+| killing power, shallow to deep | x0.43 | x0.79 |
+| gold spent per run | 9% | 42% |
+| shops where you could afford everything | 46% | 31% |
+
+The last two are the economy question: a run that ended holding four fifths of
+everything it earned did not have an economy, it had a scoreboard.
+
+Every one of those numbers lives in `src/game/balance.js`, with the reasoning
+next to it, and can be re-measured or swept from `tests/`.
 
 The soundtrack is *New Planets*, supplied by the author of this repository.

@@ -9,6 +9,8 @@
  * Stats here are the values at threat 1. `scaleEnemy` applies the node's threat.
  */
 
+import { ENEMY_TUNING } from './balance.js';
+
 export const ENEMY_CLASSES = ['swarm', 'mid', 'heavy', 'elite'];
 
 export const ENEMIES = {
@@ -230,28 +232,25 @@ export function enemiesOfClass(cls) { return ENEMY_IDS.filter(id => ENEMIES[id].
  * levels above you is now roughly double the enemy hull, not a third more.
  */
 /**
- * Global multiplier on all enemy damage output.
- *
- * A single honest lever for overall lethality, separate from the threat curve.
+ * The difficulty knobs live in balance.js, next to the defensive and economic
+ * numbers they trade against. These re-exports keep the old names working for
+ * the call sites and tests that read them directly.
  */
-export const DAMAGE_SCALE = 0.52;
-
-/**
- * Per-class toughness, applied on top of each archetype's base hull.
- *
- * Not one global number: swarm enemies were dying to a single starting-weapon
- * shot, but the same multiplier on an elite — which already carries an elite
- * flag and an encounter's threatBonus — produced capital ships with 16,000
- * hull that took 80 seconds of unbroken fire to kill while shooting back.
- */
-export const CLASS_TOUGHNESS = { swarm: 8.5, mid: 5.0, heavy: 3.2, elite: 1.8 };
+export const TUNING = ENEMY_TUNING;
+export const DAMAGE_SCALE = ENEMY_TUNING.damageScale;
+export const CLASS_TOUGHNESS = ENEMY_TUNING.toughness;
 
 export function scaleEnemy(def, threat) {
   const t = Math.max(1, threat);
-  const tough = CLASS_TOUGHNESS[def.cls] ?? 2.5;
-  const hullMul = Math.pow(1.105, t - 1);
-  const dmgMul = Math.pow(1.045, t - 1);
-  const rewardMul = 1 + 0.30 * (t - 1);
+  const tough = ENEMY_TUNING.toughness[def.cls] ?? 2.5;
+  const hullMul = Math.pow(ENEMY_TUNING.hullGrowth, t - 1);
+  const dmgMul = Math.pow(ENEMY_TUNING.damageGrowth, t - 1);
+  const rewardMul = 1 + ENEMY_TUNING.rewardGrowth * (t - 1);
+  // A bare starting hull meets threat 1-3 with no gear and no levels spent.
+  const grace = t >= ENEMY_TUNING.earlyGraceUntil ? 1
+    : ENEMY_TUNING.earlyGrace
+      + (1 - ENEMY_TUNING.earlyGrace) * ((t - 1) / (ENEMY_TUNING.earlyGraceUntil - 1));
+  const DAMAGE_SCALE = ENEMY_TUNING.damageScale * grace;
   return {
     ...def,
     hull: Math.round(def.hull * tough * hullMul),

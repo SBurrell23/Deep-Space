@@ -11,6 +11,7 @@
  */
 
 import { ENEMIES, fillBudget, scaleEnemy } from './enemies.js';
+import { ENCOUNTER_TUNING as ENC } from './balance.js';
 
 /**
  * Standard enemy budget for a node at the given threat.
@@ -26,7 +27,7 @@ import { ENEMIES, fillBudget, scaleEnemy } from './enemies.js';
 export const BOSS_ARRIVAL_DELAY = 7;
 
 export function standardBudget(threat) {
-  return 45 + 0.4 * Math.max(0, threat - 1);
+  return ENC.budgetBase + ENC.budgetPerThreat * Math.max(0, threat - 1);
 }
 
 // ---------------------------------------------------------------------------
