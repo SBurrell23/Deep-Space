@@ -72,6 +72,21 @@ export const RARITY_BY_ID = Object.fromEntries(RARITIES.map(r => [r.id, r]));
  * Pick a rarity. Deeper space and higher `luck` shift the curve upward; the
  * weights themselves stay fixed so the tail never fully closes off.
  */
+/**
+ * Active abilities are the loudest thing an item can carry, so they are a
+ * reason to be excited about a blue drop rather than the default state of a
+ * utility slot. Nothing below Military rolls one at all, and even at Military
+ * most rolls are plain stat gear.
+ */
+export const ABILITY_MIN_TIER = 3;                       // Military
+export const ABILITY_CHANCE = { 3: 0.30, 4: 0.45, 5: 0.60 };
+
+/** Whether a roll of this rarity should reach for an ability-bearing base. */
+export function rollsAbility(rng, tier) {
+  if (tier < ABILITY_MIN_TIER) return false;
+  return rng.chance(ABILITY_CHANCE[tier] ?? 0);
+}
+
 export function rollRarity(rng, { threat = 1, luck = 0, floor = 1 } = {}) {
   const push = 1 + threat * 0.055 + luck;
   const pool = RARITIES
@@ -136,7 +151,7 @@ export const BASES = {
     { id: 'overcharge', name: 'Overcharge Module', desc: 'A window of brutal fire rate.', ability: 'overcharge', mods: { fireRatePct: [0.04, 0.09] } },
     { id: 'decoy_pod', name: 'Decoy Pod', desc: 'Something else for them to shoot.', ability: 'decoy', mods: {} },
     { id: 'nova_core', name: 'Nova Core', desc: 'A ring of destruction, centred on you.', ability: 'nova', mods: {} },
-    { id: 'drone_bay', name: 'Escort Drone Bay', desc: 'A drone flies wing and shoots.', ability: 'escort_drone', mods: {} },
+    { id: 'drone_bay', name: 'Escort Drone Bay', desc: 'A drone flies wing for a while and shoots.', ability: 'escort_drone', mods: {} },
     { id: 'time_dilator', name: 'Time Dilator', desc: 'Slows everything but you.', ability: 'dilate', mods: { cooldownPct: [0.04, 0.09] } },
     { id: 'shield_burst', name: 'Emergency Screen', desc: 'Instantly restores your shield.', ability: 'shield_burst', mods: { shieldRegen: [1.0, 2.0] } },
     { id: 'siphon_beam', name: 'Siphon Beam', desc: 'Drains hull from what you hit.', mods: { lifesteal: [0.02, 0.045] } },
@@ -209,6 +224,22 @@ function rollValue(rng, spec, scale) {
   return Math.abs(raw) < 3 ? Number(raw.toFixed(3)) : Math.round(raw);
 }
 
+/**
+ * The bases a roll of this rarity may draw from.
+ *
+ * Below Military the ability-bearing templates are simply not in the bag; at
+ * Military and above they are in it only when the ability roll came up. A pool
+ * that turns out to be all one kind falls back to the whole list rather than
+ * failing to produce an item.
+ */
+function basesFor(rng, pool, tier) {
+  const all = BASES[pool] || [];
+  if (!all.some(b => b.ability)) return all;
+  const want = rollsAbility(rng, tier);
+  const picked = all.filter(b => (want ? !!b.ability : !b.ability));
+  return picked.length ? picked : all;
+}
+
 function rollMods(rng, modSpec, scale, into = {}) {
   for (const [key, spec] of Object.entries(modSpec || {})) {
     into[key] = Number(((into[key] || 0) + rollValue(rng, spec, scale)).toFixed(3));
@@ -230,8 +261,8 @@ export function generateItem(rng, { slot, level = 1, rarity = null, luck = 0, ra
     return generateWeaponItem(rng, { slot: slotId, level, rarity, luck, rarityFloor });
   }
 
-  const base = rng.pick(BASES[pool]);
   const rar = rarity ? RARITY_BY_ID[rarity] : rollRarity(rng, { threat: level, luck, floor: rarityFloor });
+  const base = rng.pick(basesFor(rng, pool, rar.tier));
   // Item level scaling is deliberately gentle; rarity should matter more than
   // depth, so an early Relic stays exciting rather than being outgrown at once.
   const scale = rar.scale * (1 + 0.055 * (level - 1));

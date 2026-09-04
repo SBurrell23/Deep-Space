@@ -88,7 +88,9 @@ The version on the title screen is the release number. Bump it in `index.html` o
 
 ## Honest state
 
-**The Master Fleet is currently out of reach.** Over eighteen headless runs at pilot skill 0.75 and 0.95 the bot won none: it reaches level 20 and ring 11 but averages 13–17 nodes before dying. The cause is compounding, not any single fight — the balance sweep puts per-encounter death between 12% and 25% from threat 8 upward, and a run needs on the order of thirty nodes to reach the rim. Surviving thirty nodes at 15% each is a four-percent proposition.
+**The Master Fleet is currently out of reach.** Over eighteen headless runs at pilot skill 0.75 and 0.95 the bot won none: it reaches level 20 and ring 11 but averages 13–17 nodes before dying. The cause is compounding, not any single fight — the balance sweep puts per-encounter death between 11% and 31% from threat 8 upward, and a run needs on the order of thirty nodes to reach the rim. Surviving thirty nodes at 15% each is a four-percent proposition.
+
+The v2.4 pass on drones and ability rarity moved the deep end further out, not closer: deaths at threat 16–20 went from 17–25% to 29–31%. That was the requested direction for those two systems, but it is worth knowing which way the needle went.
 
 Fixing it means one of three things, and they are design calls rather than tuning ones: cut the per-encounter death rate to about 5% (which makes every fight noticeably softer), shorten the route to the Master Fleet, or make death less than total. The numbers to argue with are in `tests/balance.js` and `tests/autoplay.js`.
 

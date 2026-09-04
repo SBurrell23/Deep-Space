@@ -6,7 +6,7 @@ import {
 } from '../src/game/attributes.js';
 import {
   SLOTS, SLOT_IDS, RARITIES, RARITY_BY_ID, BASES, AFFIXES, ABILITIES,
-  generateItem, rollRarity, sumMods, equippedAbilities, describeItem,
+  generateItem, rollRarity, sumMods, equippedAbilities, describeItem, ABILITY_MIN_TIER,
   sellValue, powerScore, resetItemIds,
 } from '../src/game/items.js';
 import { WEAPONS, WEAPON_IDS, resolveWeapon, shotInterval, primaryIds, secondaryIds } from '../src/game/weapons.js';
@@ -128,6 +128,32 @@ describe('items', () => {
       for (const [k, v] of Object.entries(item.mods)) {
         assert.ok(Number.isFinite(v), `${item.name}.${k} is ${v}`);
       }
+    }
+  });
+
+  it('keeps active abilities to Military tier and above, and rare there', () => {
+    // Abilities are the loudest thing an item can carry. They are the reason a
+    // blue drop is worth stopping for, which they cannot be if every grey one
+    // has one too.
+    const rng = new RNG('ABIL');
+    let withAbility = 0;
+    const byTier = {};
+    for (let i = 0; i < 4000; i++) {
+      const item = generateItem(rng, { slot: 'utility1', level: 10 });
+      byTier[item.tier] = byTier[item.tier] || { n: 0, ability: 0 };
+      byTier[item.tier].n++;
+      if (!item.ability) continue;
+      withAbility++;
+      byTier[item.tier].ability++;
+      assert.greater(item.tier, ABILITY_MIN_TIER - 1,
+        `${item.name} is ${item.rarity} and should not carry an ability`);
+    }
+    assert.greater(withAbility, 0, 'abilities have to be findable');
+    // Rare, not extinct: a Military roll should be mostly plain stat gear.
+    for (const [tier, seen] of Object.entries(byTier)) {
+      if (Number(tier) < ABILITY_MIN_TIER || seen.n < 100) continue;
+      assert.ok(seen.ability / seen.n < 0.75,
+        `tier ${tier} rolls an ability ${Math.round(100 * seen.ability / seen.n)}% of the time`);
     }
   });
 

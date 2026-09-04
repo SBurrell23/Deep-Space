@@ -72,12 +72,15 @@ function makeStartingItem(rng, slot, baseId) {
     const v = (lo + hi) / 2;
     mods[k] = Math.abs(v) < 3 ? Number(v.toFixed(3)) : Math.round(v);
   }
+  // A hull whose signature kit is an ability carries it at Military, because
+  // that is the floor an ability is allowed to appear at anywhere else.
+  const ability = base.ability || null;
   return {
     uid: `start_${slot}`, baseId, slot, pool,
     name: base.name, baseName: base.name, desc: base.desc,
-    rarity: 'standard', tier: 2, level: 1,
+    rarity: ability ? 'military' : 'standard', tier: ability ? 3 : 2, level: 1,
     icon: 'icon_sys_battery',
-    mods, affixes: [], ability: base.ability || null,
+    mods, affixes: [], ability,
     value: 40, starting: true,
   };
 }

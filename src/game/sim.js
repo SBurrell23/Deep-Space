@@ -22,6 +22,16 @@ export const WORLD_H = 540;
 /** Bullets and enemies are culled this far outside the field. */
 const CULL = 140;
 
+/**
+ * How many drones may be on your wing at once.
+ *
+ * Drones expire, but nothing stopped you launching more while the last batch
+ * was still flying: a drone weapon held down settled at a dozen homing guns
+ * that never missed and cost nothing to aim. They are an escort, not a swarm
+ * you build up — past the cap the oldest is retired to make room.
+ */
+const MAX_DRONES = 4;
+
 // ---------------------------------------------------------------------------
 // World construction
 // ---------------------------------------------------------------------------
@@ -422,9 +432,9 @@ function fireWeapons(world, dt) {
  */
 function launchDrones(world, wep) {
   const p = world.player;
-  const life = (wep.droneLife ?? 14) * (1 + (p.stats.droneLifePct || 0));
+  const life = (wep.droneLife ?? 10) * (1 + (p.stats.droneLifePct || 0));
   for (let i = 0; i < (wep.count || 1); i++) {
-    world.drones.push({
+    addDrone(world, {
       x: p.x - 30, y: p.y - 30 + i * 22, vx: 0, vy: 0, r: 8,
       life,
       fireTimer: i * 0.15,
@@ -604,7 +614,7 @@ function activateAbility(world, ab) {
       explode(world, p.x, p.y, { radius: 240, damage: 46 + world.threat * 7, friendly: true });
       break;
     case 'escort_drone':
-      world.drones.push(makeDrone(world, p));
+      addDrone(world, makeDrone(world, p));
       break;
     case 'dilate':
       world.timeScale = 0.45;
@@ -618,13 +628,26 @@ function activateAbility(world, ab) {
   }
 }
 
+/** Add a drone, retiring the oldest if the wing is already full. */
+function addDrone(world, drone) {
+  const live = world.drones.filter(d => !d.dead);
+  for (let i = 0; i <= live.length - MAX_DRONES; i++) {
+    live[i].dead = true;
+    emit(world, { type: 'droneExpire', x: live[i].x, y: live[i].y });
+  }
+  world.drones.push(drone);
+}
+
 function makeDrone(world, p) {
   return {
     x: p.x - 30, y: p.y - 30, vx: 0, vy: 0, r: 8,
-    life: 14 * (1 + (p.stats.droneLifePct || 0)),
+    life: 10 * (1 + (p.stats.droneLifePct || 0)),
     fireTimer: 0,
-    fireInterval: 0.45 / (1 + (p.stats.droneRofPct || 0)),
-    damage: 8 + world.threat * 2.2,
+    fireInterval: 0.62 / (1 + (p.stats.droneRofPct || 0)),
+    // Scaled off the pilot, not the node. Threat-scaled drone damage meant an
+    // escort that got stronger the further out of your depth you were, which
+    // is exactly backwards: it let a drone clear ships the player could not.
+    damage: 11 * (p.stats.damageMult || 1),
     sprite: 'drone_combat', dead: false,
   };
 }

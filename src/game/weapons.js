@@ -182,9 +182,9 @@ export const WEAPONS = {
   },
   drone_swarm: {
     id: 'drone_swarm', kind: 'secondary', name: 'Drone Swarm',
-    desc: 'Releases three escort drones that orbit you and shoot what you are shooting.',
-    behaviour: 'drone', damage: 15, rof: 0.22, energy: 26,
-    count: 3, droneLife: 18, droneRof: 2.6, droneSpeed: 660,
+    desc: 'Releases three short-lived escort drones that orbit you and pick their own targets.',
+    behaviour: 'drone', damage: 7, rof: 0.22, energy: 26,
+    count: 3, droneLife: 9, droneRof: 2.0, droneSpeed: 660,
     sprite: 'drone_combat', sound: 'drone_launch', icon: 'icon_sys_drones',
   },
   shield_breaker: {

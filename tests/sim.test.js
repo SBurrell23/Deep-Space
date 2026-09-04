@@ -304,6 +304,37 @@ describe('simulation — entities', () => {
     assert.lessOrEqual(world.bullets.length, 40, 'bullets are accumulating');
   });
 
+  it('holds the drone wing to a fixed size and lets it expire', () => {
+    // Drones expired, but nothing stopped you launching more over the top of
+    // the last batch: held down, a drone weapon settled into a dozen homing
+    // guns that never missed.
+    const { world, ship } = makeWorld({
+      id: 'drone_test', name: 'Drone Test', type: 'combat',
+      objective: { kind: 'survive', seconds: 90 },
+      waves: [{ at: 0, spawn: [{ id: 'picket', count: 3, formation: 'line' }] }],
+    }, { threat: 6 });
+
+    world.player.secondary = {
+      name: 'Drone Swarm', behaviour: 'drone', damage: 7, rof: 0.22, energy: 0,
+      count: 3, droneLife: 9, droneRof: 2, droneSpeed: 660,
+    };
+
+    let peak = 0;
+    run(world, 45, w => {
+      w.input.fireSecondary = true;
+      peak = Math.max(peak, w.drones.filter(d => !d.dead).length);
+    });
+    assert.lessOrEqual(peak, 4, `the drone wing reached ${peak}`);
+    assert.greater(peak, 0, 'drones should actually launch');
+
+    // And they are temporary: stop launching and the wing empties.
+    world.input.fireSecondary = false;
+    run(world, 14);
+    assert.equal(world.drones.filter(d => !d.dead).length, 0,
+      'drones must expire rather than escort you for the rest of the fight');
+    assert.ok(ship);
+  });
+
   it('does not leak entities over a long fight', () => {
     const { world } = makeWorld({
       id: 't', name: 'T', type: 'combat',

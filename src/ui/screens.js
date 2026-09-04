@@ -315,7 +315,8 @@ export function renderHelp() {
 
     section('Getting stronger',
       p('Everything you clear gives experience. Each level gives you two points to put into six attributes: Hull, Shields, Weapons, Reactor, Thrusters and Systems. There is no respec, so build deliberately.'),
-      p('Gear fills eleven mounts — two weapons plus a heavy mount cut in at level 13, engine, shield, reactor, hull plating, nav computer, and three utility slots. Utility items are what grant active abilities.'),
+      p('Gear fills eleven mounts — two weapons plus a heavy mount cut in at level 13, engine, shield, reactor, hull plating, nav computer, and three utility slots.'),
+      p('Active abilities are rare and only appear on Military-tier gear or better, so a blue drop is worth stopping for. Drones from any source are an escort, not an army: at most four fly with you and they expire on their own.'),
       p('Loot is rolled, not fixed: a Relic-tier part found early can carry a whole run.')),
 
     section('Reading a fight',
