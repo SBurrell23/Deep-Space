@@ -201,9 +201,9 @@ export function enemiesOfClass(cls) { return ENEMY_IDS.filter(id => ENEMIES[id].
  * per-encounter damage compounds across a run: at 1.0 even a well-played run
  * bled out around ring 5 having cleared a fifth of the nodes it should.
  */
-export const DAMAGE_SCALE = 0.72;
+export const DAMAGE_SCALE = 0.58;
 
-export const CLASS_TOUGHNESS = { swarm: 7.0, mid: 4.0, heavy: 2.6, elite: 1.5 };
+export const CLASS_TOUGHNESS = { swarm: 8.5, mid: 5.0, heavy: 3.2, elite: 1.8 };
 
 export function scaleEnemy(def, threat) {
   const t = Math.max(1, threat);
