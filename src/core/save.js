@@ -1,44 +1,36 @@
 /**
  * Persistence.
  *
- * Two independent stores:
- *  - the PROFILE: unlocks, achievements, lifetime stats, high scores. Never
- *    cleared by losing a run.
- *  - the RUN: the in-progress game, written on every jump so a closed tab
- *    doesn't cost progress.
+ * Two records in localStorage:
+ *   - the PROFILE, which survives everything: achievements, unlocks, lifetime
+ *     stats and run history.
+ *   - the RUN, an in-progress game. Deleted permanently on death — the run is
+ *     gone for good, which is the whole point.
  *
- * Both are versioned and defensively parsed — a corrupt or half-written entry
- * must degrade to "no save" rather than breaking the menu.
+ * Every read is defensive. A corrupt or half-written record must degrade to a
+ * fresh profile rather than a white screen.
  */
 
-const PROFILE_KEY = 'deepspace.profile.v1';
-const RUN_KEY = 'deepspace.run.v1';
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
+
+const PROFILE_KEY = 'deepspace.profile.v2';
+const RUN_KEY = 'deepspace.run.v2';
+/** v1 belonged to the ship-management game; its shape is unrelated. */
+const LEGACY_KEYS = ['deepspace.profile.v1', 'deepspace.run.v1'];
 
 export const DEFAULT_PROFILE = {
   version: SAVE_VERSION,
-  unlockedShips: { kestrel: ['A'] },
-  achievements: {},          // id -> { at: timestamp, ship }
-  shipAchievements: {},      // shipId -> { id: true }
+  created: 0,
+  achievements: {},
   stats: {
-    runs: 0, wins: 0, deaths: 0,
-    beaconsVisited: 0, shipsDestroyed: 0, crewLost: 0, crewHired: 0,
-    scrapEarned: 0, jumps: 0, sectorsCleared: 0, bossKills: 0,
-    playSeconds: 0, fastestWinSeconds: null, highScore: 0,
+    runs: 0, wins: 0, losses: 0,
+    totalKills: 0, totalNodes: 0, totalCredits: 0, playtime: 0,
+    bestRing: 0, bestLevel: 1, bestNodes: 0,
+    fastestWin: null,
   },
-  history: [],               // last 20 runs, newest first
-  settings: { showTutorialHints: true, confirmJump: true, autofireDefault: true },
+  history: [],
+  lastShip: 'kestrel',
 };
-
-function safeParse(raw, fallback) {
-  if (!raw) return fallback;
-  try {
-    const data = JSON.parse(raw);
-    return data && typeof data === 'object' ? data : fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 function storageAvailable() {
   try {
@@ -58,31 +50,38 @@ export const canPersist = storageAvailable;
 // ---------------------------------------------------------------------------
 
 export function loadProfile() {
-  const stored = safeParse(localStorage.getItem(PROFILE_KEY), null);
-  if (!stored) return structuredCopy(DEFAULT_PROFILE);
-  return migrateProfile(stored);
-}
+  const fresh = () => ({
+    ...structuredCopy(DEFAULT_PROFILE),
+    created: Date.now(),
+  });
+  if (!storageAvailable()) return fresh();
 
-function migrateProfile(stored) {
-  const p = structuredCopy(DEFAULT_PROFILE);
-  // Merge field by field so a save written by an older build keeps what it has
-  // and gains anything new, instead of being thrown away.
-  p.unlockedShips = { ...p.unlockedShips, ...(stored.unlockedShips || {}) };
-  for (const [ship, variants] of Object.entries(p.unlockedShips)) {
-    p.unlockedShips[ship] = Array.isArray(variants) ? [...new Set(variants)] : ['A'];
+  try {
+    const raw = localStorage.getItem(PROFILE_KEY);
+    if (!raw) return fresh();
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object') return fresh();
+
+    // Merge onto the defaults so a profile written by an older build gains any
+    // new fields instead of leaving them undefined all over the UI.
+    const profile = {
+      ...structuredCopy(DEFAULT_PROFILE),
+      ...data,
+      stats: { ...DEFAULT_PROFILE.stats, ...(data.stats || {}) },
+      achievements: data.achievements && typeof data.achievements === 'object' ? data.achievements : {},
+      history: Array.isArray(data.history) ? data.history.slice(0, 30) : [],
+      version: SAVE_VERSION,
+    };
+    return profile;
+  } catch {
+    return fresh();
   }
-  p.achievements = { ...(stored.achievements || {}) };
-  p.shipAchievements = { ...(stored.shipAchievements || {}) };
-  p.stats = { ...p.stats, ...(stored.stats || {}) };
-  p.history = Array.isArray(stored.history) ? stored.history.slice(0, 20) : [];
-  p.settings = { ...p.settings, ...(stored.settings || {}) };
-  p.version = SAVE_VERSION;
-  return p;
 }
 
 export function saveProfile(profile) {
+  if (!storageAvailable()) return false;
   try {
-    localStorage.setItem(PROFILE_KEY, JSON.stringify({ ...profile, version: SAVE_VERSION }));
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
     return true;
   } catch {
     return false;
@@ -90,113 +89,147 @@ export function saveProfile(profile) {
 }
 
 export function resetProfile() {
-  try { localStorage.removeItem(PROFILE_KEY); } catch { /* nothing to do */ }
-  return structuredCopy(DEFAULT_PROFILE);
+  try {
+    localStorage.removeItem(PROFILE_KEY);
+    localStorage.removeItem(RUN_KEY);
+    for (const k of LEGACY_KEYS) localStorage.removeItem(k);
+  } catch { /* nothing we can do */ }
+  return loadProfile();
 }
 
-/** Record a finished run on the profile and return the updated profile. */
-export function recordRunResult(profile, result) {
-  const p = profile;
-  p.stats.runs++;
-  if (result.won) p.stats.wins++; else p.stats.deaths++;
-  p.stats.beaconsVisited += result.beacons || 0;
-  p.stats.shipsDestroyed += result.shipsDestroyed || 0;
-  p.stats.crewLost += result.crewLost || 0;
-  p.stats.scrapEarned += result.scrapEarned || 0;
-  p.stats.jumps += result.jumps || 0;
-  p.stats.sectorsCleared += result.sector || 0;
-  p.stats.playSeconds += Math.round(result.seconds || 0);
-  if (result.won) {
-    p.stats.bossKills++;
-    if (p.stats.fastestWinSeconds == null || result.seconds < p.stats.fastestWinSeconds) {
-      p.stats.fastestWinSeconds = Math.round(result.seconds);
-    }
-  }
-  if ((result.score || 0) > (p.stats.highScore || 0)) p.stats.highScore = result.score;
+/**
+ * Fold a finished run into the profile. Called on both victory and death, so
+ * a lost run still counts toward lifetime totals and unlock progress.
+ */
+export function recordRunResult(profile, run, outcome) {
+  const s = run.stats;
+  const st = profile.stats;
 
-  p.history.unshift({
+  st.runs++;
+  if (outcome === 'victory') st.wins++;
+  else st.losses++;
+
+  st.totalKills += s.kills;
+  st.totalNodes += s.nodesCleared;
+  st.totalCredits += s.creditsEarned;
+  st.playtime += run.elapsed;
+  st.bestRing = Math.max(st.bestRing, s.deepestRing);
+  st.bestLevel = Math.max(st.bestLevel, run.ship.progress.level);
+  st.bestNodes = Math.max(st.bestNodes, s.nodesCleared);
+  if (outcome === 'victory' && (st.fastestWin == null || run.elapsed < st.fastestWin)) {
+    st.fastestWin = run.elapsed;
+  }
+
+  profile.lastShip = run.ship.shipId;
+  profile.history.unshift({
     at: Date.now(),
-    ship: result.shipId, variant: result.variant, shipName: result.shipName,
-    won: !!result.won, sector: result.sector, score: result.score,
-    seconds: Math.round(result.seconds || 0), cause: result.cause || null,
-    seed: result.seed || null,
+    outcome,
+    shipId: run.ship.shipId,
+    shipName: run.ship.name,
+    level: run.ship.progress.level,
+    ring: s.deepestRing,
+    nodes: s.nodesCleared,
+    kills: s.kills,
+    elapsed: Math.round(run.elapsed),
+    seed: run.seed,
+    score: runScore(run, outcome),
   });
-  p.history = p.history.slice(0, 20);
-  return p;
+  profile.history = profile.history.slice(0, 30);
+
+  saveProfile(profile);
+  return profile;
 }
 
-export function unlockShip(profile, shipId, variant = 'A') {
-  if (!profile.unlockedShips[shipId]) profile.unlockedShips[shipId] = [];
-  if (!profile.unlockedShips[shipId].includes(variant)) {
-    profile.unlockedShips[shipId].push(variant);
-    return true;
-  }
-  return false;
-}
-
-export function isShipUnlocked(profile, shipId, variant = 'A') {
-  return !!profile.unlockedShips[shipId]?.includes(variant);
+/** A single comparable number for the records screen. */
+export function runScore(run, outcome) {
+  const s = run.stats;
+  return Math.round(
+    s.nodesCleared * 25
+    + s.deepestRing * 140
+    + run.ship.progress.level * 90
+    + s.kills * 2
+    + s.bossesKilled * 200
+    + s.perfectClears * 40
+    + (outcome === 'victory' ? 4000 : 0));
 }
 
 // ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
 
-export function saveRun(run) {
+export function saveRun(serialized) {
+  if (!storageAvailable()) return false;
   try {
-    localStorage.setItem(RUN_KEY, JSON.stringify({ version: SAVE_VERSION, savedAt: Date.now(), run }));
+    localStorage.setItem(RUN_KEY, JSON.stringify({ version: SAVE_VERSION, savedAt: Date.now(), run: serialized }));
     return true;
   } catch {
-    // Quota exceeded, most likely. Drop the old save so we aren't left with a
-    // stale one that no longer matches the player's progress.
-    try { localStorage.removeItem(RUN_KEY); } catch { /* give up quietly */ }
     return false;
   }
 }
 
 export function loadRun() {
-  const stored = safeParse(localStorage.getItem(RUN_KEY), null);
-  if (!stored || !stored.run) return null;
-  if (stored.version !== SAVE_VERSION) return null;
-  // Sanity check: a save missing its ship is unusable.
-  if (!stored.run.ship || !stored.run.ship.shipId) return null;
-  return stored.run;
+  if (!storageAvailable()) return null;
+  try {
+    const raw = localStorage.getItem(RUN_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || data.version !== SAVE_VERSION || !data.run) return null;
+    return data.run;
+  } catch {
+    return null;
+  }
 }
 
 export function hasSavedRun() { return loadRun() !== null; }
 
+/** Permanent. Called on death — there is no recovering a lost run. */
 export function clearRun() {
-  try { localStorage.removeItem(RUN_KEY); return true; } catch { return false; }
+  try { localStorage.removeItem(RUN_KEY); } catch { /* ignore */ }
 }
 
+/** A short description for the title screen's Continue button. */
 export function savedRunSummary() {
-  const stored = safeParse(localStorage.getItem(RUN_KEY), null);
-  if (!stored || !stored.run) return null;
-  const r = stored.run;
-  return {
-    savedAt: stored.savedAt,
-    shipName: r.ship?.name || 'Unknown',
-    shipId: r.ship?.shipId,
-    sector: (r.sectorIndex ?? 0) + 1,
-    hull: r.ship?.hull, maxHull: r.ship?.maxHull,
-    scrap: r.scrap,
-  };
+  const run = loadRun();
+  if (!run) return null;
+  try {
+    return {
+      shipId: run.ship.shipId,
+      level: run.ship.progress.level,
+      hull: Math.round(run.ship.hull),
+      nodes: run.stats?.nodesCleared || 0,
+      ring: run.stats?.deepestRing || 0,
+      elapsed: Math.round(run.elapsed || 0),
+      seed: run.seed,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
+// Diagnostics
+// ---------------------------------------------------------------------------
 
-function structuredCopy(o) { return JSON.parse(JSON.stringify(o)); }
-
-/** Approximate bytes used by Deep Space in localStorage. */
 export function storageFootprint() {
+  if (!storageAvailable()) return { bytes: 0, available: false };
   let bytes = 0;
-  try {
-    for (const key of [PROFILE_KEY, RUN_KEY, 'deepspace.audio.v1']) {
-      const v = localStorage.getItem(key);
-      if (v) bytes += key.length + v.length;
-    }
-  } catch { /* unavailable */ }
-  return bytes;
+  for (const k of [PROFILE_KEY, RUN_KEY]) {
+    bytes += (localStorage.getItem(k) || '').length;
+  }
+  return { bytes, available: true };
 }
+
+/** Remove records from the previous game so they don't sit in storage forever. */
+export function purgeLegacy() {
+  let removed = 0;
+  try {
+    for (const k of LEGACY_KEYS) {
+      if (localStorage.getItem(k) != null) { localStorage.removeItem(k); removed++; }
+    }
+  } catch { /* ignore */ }
+  return removed;
+}
+
+function structuredCopy(v) { return JSON.parse(JSON.stringify(v)); }
 
 export const KEYS = { PROFILE_KEY, RUN_KEY };

@@ -1,952 +1,579 @@
 /**
- * A run: the state machine that moves the player from the hangar to the
- * flagship, and the single place where game state is mutated.
+ * Run orchestration.
  *
- * Everything here is pure logic over serialisable data. The UI reads the run
- * and calls these functions; it never reaches into ships or maps directly.
+ * Owns the run's phase machine and everything that happens between fights:
+ * travel, rewards, levelling, loot, anomaly resolution and the Master Fleet
+ * finale. The action simulation is created here but stepped by the caller, so
+ * this module stays free of any frame loop.
+ *
+ * Phases:
+ *   map -> brief -> action -> debrief -> map
+ *              \-> anomaly -/
+ *              \-> shop ----/
+ *   ... -> levelup (interrupts, whenever points are unspent)
+ *   ... -> dead | victory
  */
 
 import { RNG } from '../core/rng.js';
-import { saveRun, clearRun, recordRunResult, unlockShip } from '../core/save.js';
-import { createShip, addWeapon, addDrone, installSystem, repairHull, autoAssignPower, livingCrew, activeFires, updateShip } from './ship.js';
-import { getShip, getLayout, SHIP_IDS } from './ships.js';
-import { generateSectorTree, generateSectorMap, jumpTo, beaconById, atExit, revealMap, advanceFleet, SECTOR_TYPES, TOTAL_SECTORS } from './sector.js';
-import { rollEvent, rollOutcome, checkRequirement, EVENTS_BY_ID } from './events.js';
-import { generateEnemy, generateBoss } from './enemy.js';
-import { Combat } from './combat.js';
-import { generateStore, sellValue, reactorUpgradeCost } from './store.js';
-import { makeCrew, rollRace, RACES } from './crew.js';
-import { WEAPONS, DRONES, AUGMENTS, getWeapon, getDrone, getAugment, rarityWeight, augmentValue, hasAugment } from './weapons.js';
-import { SYSTEMS, upgradeCost, installCost, getSystem } from './systems.js';
-import { evaluate, evaluateShip, SHIP_ACHIEVEMENTS, achievementById } from './achievements.js';
+import * as U from './universe.js';
+import * as S from './ship.js';
+import { createWorld, update as stepWorld, retreat as retreatWorld, WORLD_W, WORLD_H } from './sim.js';
+import { getEncounter, ENCOUNTER_TYPES } from './encounters/index.js';
+import { nodeXpValue } from './attributes.js';
+import { generateItem, sellValue, SLOT_IDS } from './items.js';
+import { checkAchievements } from './achievements.js';
 
-export const PHASES = {
-  MAP: 'map', EVENT: 'event', COMBAT: 'combat', STORE: 'store',
-  SECTOR_CHOICE: 'sectorChoice', GAME_OVER: 'gameover', VICTORY: 'victory',
-};
+export const PHASES = ['map', 'brief', 'action', 'debrief', 'anomaly', 'shop', 'levelup', 'dead', 'victory'];
 
-export const STARTING_FUEL_WARNING = 3;
+export const MASTER_FLEET_STAGES = ['masterfleet_1', 'masterfleet_2', 'masterfleet_3'];
 
 // ---------------------------------------------------------------------------
-// Starting a run
+// Lifecycle
 // ---------------------------------------------------------------------------
 
-export function startRun(profile, shipId, variant = 'A', seed = null) {
-  const actualSeed = seed || RNG.friendlySeed();
-  const rng = new RNG(actualSeed);
-  const layout = getLayout(shipId, variant);
-  const ship = createShip(shipId, variant, { rng });
+export function startRun({ shipId = 'kestrel', seed = null, profile = null } = {}) {
+  const seedValue = seed || RNG.friendlySeed();
+  const rng = new RNG(seedValue);
 
-  const tree = generateSectorTree(rng);
-  const startSector = tree.sectors[tree.startId];
-  const map = generateSectorMap(rng, startSector);
+  const ship = S.createShip(shipId, rng.fork('ship'));
+  const map = U.generateUniverse(rng.fork('universe'));
 
   const run = {
-    seed: actualSeed,
-    rngState: rng.serialize(),
-    shipId, variant,
-    shipName: layout.name,
-    ship,
-    scrap: layout.resources.scrap,
-    fuel: layout.resources.fuel,
-    missiles: layout.resources.missiles,
-    droneParts: layout.resources.droneParts,
-
-    sectorTree: tree,
-    currentSectorId: tree.startId,
-    sectorIndex: 0,
+    seed: seedValue,
+    rng,
     map,
+    ship,
+    profile,
 
-    phase: PHASES.MAP,
-    pendingEvent: null,
-    pendingOutcome: null,
-    store: null,
-    combat: null,
-    sectorChoices: null,
+    phase: 'map',
+    world: null,
+    node: null,
+    encounter: null,
+    pending: null,          // rewards awaiting the debrief screen
+    anomalyResult: null,
+    shopStock: null,
 
     elapsed: 0,
     startedAt: Date.now(),
+    masterFleetStage: 0,
+
     log: [],
     newAchievements: [],
+
     stats: {
-      beacons: 1, jumps: 0, shipsDestroyed: 0, crewLost: 0, crewHired: 0,
-      scrapEarned: 0, missilesFired: 0, boardingKills: 0, captures: 0,
-      mindControls: 0, lockdowns: 0, ventKills: 0, nanoforgeRepairs: 0,
-      recoveredFromCritical: false, lowestHull: ship.hull,
+      nodesCleared: 0, kills: 0, deaths: 0, damageTaken: 0, damageDealt: 0,
+      creditsEarned: 0, creditsSpent: 0, itemsFound: 0, itemsSold: 0,
+      encountersWon: 0, encountersFled: 0, bossesKilled: 0, shotsFired: 0,
+      shotsHit: 0, dashes: 0, abilitiesUsed: 0, deepestRing: 0, anomaliesResolved: 0,
+      hullRepaired: 0, terrainHits: 0, perfectClears: 0,
     },
   };
 
-  if (hasAugment(ship.augments, 'fleet_sensor')) revealMap(map);
-  pushLog(run, `Departed in the ${layout.name}. Seed ${actualSeed}.`);
-  autosave(run);
+  U.revealFrom(map, 0, U.scanRadius(ship));
+  logLine(run, `${ship.name} clears the yard. Seed ${seedValue}.`);
   return run;
 }
 
-/** Rehydrate the RNG for a loaded run so the stream continues where it left off. */
-export function rngFor(run) {
-  const rng = RNG.deserialize(run.rngState);
-  // Callers mutate the RNG; write the state back after each use.
-  return rng;
+export function logLine(run, text) {
+  run.log.unshift({ text, t: run.elapsed });
+  if (run.log.length > 60) run.log.pop();
 }
 
-function withRng(run, fn) {
-  const rng = rngFor(run);
-  const result = fn(rng);
-  run.rngState = rng.serialize();
-  return result;
-}
-
-export function autosave(run) {
-  if (run.phase === PHASES.GAME_OVER || run.phase === PHASES.VICTORY) return false;
-  return saveRun(run);
-}
-
-function pushLog(run, text) {
-  run.log.unshift({ at: run.elapsed, text });
-  if (run.log.length > 60) run.log.length = 60;
+/** Called once per frame by the host, whatever the phase. */
+export function tick(run, dt) {
+  run.elapsed += dt;
+  if (run.phase === 'action' && run.world) {
+    stepWorld(run.world, dt);
+    if (run.world.state !== 'playing') concludeEncounter(run);
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Jumping
+// Travel
 // ---------------------------------------------------------------------------
 
-export function canJump(run) {
-  return run.phase === PHASES.MAP && run.fuel > 0 && run.ship.ftlCharge >= 1;
+export function jump(run, nodeId) {
+  if (run.phase !== 'map') return { ok: false, reason: 'not on the map' };
+  if (!U.canJumpTo(run.map, nodeId)) return { ok: false, reason: 'no route there' };
+
+  U.jumpTo(run.map, nodeId, run.ship);
+  const node = U.currentNode(run.map);
+  run.node = node;
+  run.stats.deepestRing = Math.max(run.stats.deepestRing, node.ring);
+
+  if (U.isCleared(run.map, nodeId)) {
+    // A cleared node is a waypoint, nothing more. This is what pushes the run
+    // outward instead of letting you farm the safe ring you started in.
+    logLine(run, `${node.encounterName || 'Empty space'} — already picked clean.`);
+    run.phase = 'map';
+    return { ok: true, revisit: true };
+  }
+
+  return openNode(run, node);
+}
+
+function openNode(run, node) {
+  const enc = getEncounter(node.encounterId);
+  run.encounter = enc;
+
+  if (!enc) {
+    U.markCleared(run.map, node.id);
+    run.phase = 'map';
+    return { ok: true, empty: true };
+  }
+
+  switch (enc.type) {
+    case 'anomaly':
+      run.phase = 'anomaly';
+      run.anomalyResult = null;
+      return { ok: true, phase: 'anomaly' };
+    case 'shop':
+      run.shopStock = rollShopStock(run, node);
+      run.phase = 'shop';
+      return { ok: true, phase: 'shop' };
+    case 'empty': {
+      const xp = Math.round(nodeXpValue(node.threat) * 0.25);
+      S.addXp(run.ship, xp);
+      U.markCleared(run.map, node.id);
+      logLine(run, `${enc.name}. ${enc.blurb}`);
+      run.phase = maybeLevelUp(run, 'map');
+      return { ok: true, phase: 'empty', xp };
+    }
+    default:
+      run.phase = 'brief';
+      return { ok: true, phase: 'brief' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Encounters
+// ---------------------------------------------------------------------------
+
+/** Commit to the fight described by the brief screen. */
+export function beginEncounter(run, encounterId = null) {
+  const enc = encounterId ? getEncounter(encounterId) : run.encounter;
+  if (!enc) return false;
+  run.encounter = enc;
+  run.world = createWorld({
+    encounter: enc,
+    threat: run.node?.threat ?? 1,
+    ship: run.ship,
+    rng: run.rng.fork(`enc${run.map.jumps}-${enc.id}`),
+  });
+  run.phase = 'action';
+  return true;
+}
+
+/** Disengage. You keep nothing, and the node stays uncleared. */
+export function flee(run) {
+  if (run.phase !== 'action' || !run.world) return false;
+  retreatWorld(run.world);
+  return true;
+}
+
+function concludeEncounter(run) {
+  const world = run.world;
+  const won = world.state === 'won';
+  const fled = world.outcome === 'fled';
+
+  S.applyEncounterResult(run.ship, world);
+
+  run.stats.kills += world.stats.kills;
+  run.stats.damageDealt += world.stats.damageDealt;
+  run.stats.damageTaken += world.stats.damageTaken;
+  run.stats.shotsFired += world.stats.shotsFired;
+  run.stats.shotsHit += world.stats.shotsHit;
+  run.stats.dashes += world.stats.dashes;
+  run.stats.abilitiesUsed += world.stats.abilitiesUsed;
+  run.stats.terrainHits += world.stats.terrainHits;
+
+  if (S.isDestroyed(run.ship)) {
+    run.phase = 'dead';
+    run.stats.deaths++;
+    logLine(run, `${run.ship.name} is lost with all hands.`);
+    fireAchievements(run, 'death');
+    return;
+  }
+
+  if (!won) {
+    run.stats.encountersFled++;
+    run.pending = { fled: true, encounter: run.encounter, world };
+    run.phase = 'debrief';
+    logLine(run, fled ? 'You break off and jump clear.' : 'The encounter goes badly.');
+    return;
+  }
+
+  run.stats.encountersWon++;
+  run.pending = buildRewards(run, world);
+  run.phase = 'debrief';
+  return run.pending;
 }
 
 /**
- * Jump to a beacon. Consumes fuel, advances the fleet, and rolls whatever is
- * waiting there. Returns { ok, reason } or { ok: true, phase }.
+ * Turn a won encounter into payouts. XP is the node's value scaled by the
+ * encounter's multiplier — not a per-kill tally — so a tunnel run pays like a
+ * fight of the same threat rather than nothing.
  */
-export function jump(run, beaconId) {
-  if (run.phase !== PHASES.MAP) return { ok: false, reason: 'Not on the map' };
-  if (run.fuel <= 0) return { ok: false, reason: 'Out of fuel' };
-  if (run.ship.ftlCharge < 1) return { ok: false, reason: 'FTL drive still charging' };
+function buildRewards(run, world) {
+  const node = run.node;
+  const enc = run.encounter;
+  const mult = enc.rewards || {};
+  const threat = node?.threat ?? 1;
 
-  const beacon = jumpTo(run.map, beaconId);
-  if (!beacon) return { ok: false, reason: 'That beacon is not adjacent' };
+  const baseXp = nodeXpValue(threat) * (mult.xpMult ?? 1);
+  const killXp = world.stats.xpEarned * 0.10;
+  const xp = Math.round(baseXp + killXp);
 
-  run.fuel -= 1;
-  run.ship.ftlCharge = 0;
-  run.stats.jumps++;
-  run.stats.beacons++;
-  checkAchievements(run, 'jump');
+  const credits = Math.round(
+    (world.stats.creditsEarned + 12 + threat * 6) * (mult.creditsMult ?? 1)
+      * (1 + (run.ship.stats.creditsPct || 0)));
 
-  // Between jumps the crew patch things up and the air comes back.
-  postJumpRecovery(run);
+  const crateCount = (mult.crates ?? 0) + (world.stats.crates || 0)
+    + (run.rng.chance(0.32 * (run.ship.stats.crateChance || 1)) ? 1 : 0);
 
-  return { ok: true, ...arriveAt(run, beacon) };
+  const items = S.rollLoot(run.ship, run.rng, {
+    threat,
+    crates: Math.min(4, crateCount),
+    rarityFloor: threat >= 12 ? 2 : 1,
+  });
+
+  const perfect = world.stats.damageTaken === 0;
+  if (perfect) run.stats.perfectClears++;
+
+  return {
+    fled: false,
+    encounter: enc,
+    world,
+    xp, credits, items,
+    perfect,
+    accuracy: world.stats.shotsFired ? world.stats.shotsHit / world.stats.shotsFired : 0,
+    time: world.stats.timeElapsed,
+  };
 }
 
-/** Fires, breaches and vacuum don't survive an FTL jump; damage does. */
-function postJumpRecovery(run) {
-  const ship = run.ship;
-  for (const room of ship.rooms) {
-    room.fire = 0;
-    room.breaches = 0;
-    room.oxygen = 1;
-  }
-  for (const d of ship.doors) d.open = false;
-  ship.superShield = 0;
-  ship.echoUsed = false;
-  ship.cloakTimer = 0;
-  ship.cloakCooldown = 0;
-  ship.batteryTimer = 0;
-  ship.batteryCooldown = 0;
-  for (const sys of Object.values(ship.systems)) {
-    sys.ionCharges = 0; sys.ionTimer = 0;
-    sys.hacked = false; sys.hackActive = false; sys.hackTimer = 0; sys.hackTargetId = null;
-    sys.cooldown = 0;
-  }
-  autoAssignPower(ship);
-}
+/** Accept the debrief: bank the rewards and go back to the map. */
+export function collectRewards(run, { take = null } = {}) {
+  const p = run.pending;
+  if (!p) { run.phase = 'map'; return null; }
 
-/** Work out what's at a beacon and move the run into the right phase. */
-function arriveAt(run, beacon) {
-  const sectorType = run.map.sectorType;
-
-  if (beacon.isExit) {
-    pushLog(run, 'Arrived at the sector exit.');
+  if (p.fled) {
+    run.pending = null;
+    run.phase = 'map';
+    return null;
   }
 
-  if (beacon.type === 'store') {
-    if (!beacon.store) {
-      beacon.store = withRng(run, rng => generateStore(rng, run.sectorIndex + 1, run.ship));
+  const levels = S.addXp(run.ship, p.xp);
+  run.ship.credits += p.credits;
+  run.stats.creditsEarned += p.credits;
+
+  const keep = take || p.items;
+  let kept = 0, sold = 0;
+  for (const item of p.items) {
+    if (keep.includes(item) && S.addItem(run.ship, item)) kept++;
+    else { run.ship.credits += sellValue(item); sold += sellValue(item); }
+  }
+  run.stats.itemsFound += kept;
+
+  U.markCleared(run.map, run.node.id);
+  run.stats.nodesCleared++;
+
+  // The Master Fleet is three encounters played back to back.
+  if (run.encounter?.type === 'masterfleet') {
+    run.masterFleetStage++;
+    if (run.masterFleetStage < MASTER_FLEET_STAGES.length) {
+      run.pending = null;
+      run.encounter = getEncounter(MASTER_FLEET_STAGES[run.masterFleetStage]);
+      run.phase = 'brief';
+      logLine(run, `The next line of the fleet closes in.`);
+      return { levels, kept, sold, nextStage: run.masterFleetStage };
     }
-    run.store = beacon.store;
-    run.store.visited = true;
-    run.phase = PHASES.STORE;
-    checkAchievements(run, 'store');
-    autosave(run);
-    return { phase: PHASES.STORE };
+    return winRun(run, { levels, kept, sold });
   }
 
-  // A beacon the pursuing fleet has reached is always a fight.
-  if (beacon.fleet) {
-    pushLog(run, 'The Swarm fleet is here.');
-    startCombat(run, { classId: run.sectorIndex >= 5 ? 'elite' : 'fighter', faction: 'swarm' });
-    return { phase: PHASES.COMBAT };
-  }
-
-  const event = withRng(run, rng => rollEvent(rng, beacon.type, sectorType));
-  run.pendingEvent = { id: event.id, beaconId: beacon.id, resolved: false };
-  run.phase = PHASES.EVENT;
-  autosave(run);
-  return { phase: PHASES.EVENT, event: event.id };
+  logLine(run, `${p.encounter.name} cleared. +${p.xp} XP, +${p.credits} credits.`);
+  run.pending = null;
+  run.phase = maybeLevelUp(run, 'map');
+  fireAchievements(run, 'encounterWon', { levels });
+  return { levels, kept, sold };
 }
 
-export function currentEvent(run) {
-  return run.pendingEvent ? EVENTS_BY_ID[run.pendingEvent.id] : null;
+function winRun(run, extra) {
+  run.map.masterFleetDefeated = true;
+  run.phase = 'victory';
+  logLine(run, 'The Master Fleet burns. The sky is quiet for the first time.');
+  fireAchievements(run, 'victory');
+  return { ...extra, victory: true };
 }
 
-/** Choices with their availability resolved, for rendering. */
-export function eventChoices(run) {
-  const event = currentEvent(run);
-  if (!event) return [];
-  return event.choices.map((c, i) => ({
-    index: i, text: c.text,
-    ...checkRequirement(c.req, { ship: run.ship, run }),
-  }));
+/**
+ * After a victory the run continues — the map stays open so you can keep
+ * exploring what you never reached. This is what "your run is saved" means.
+ */
+export function continueAfterVictory(run) {
+  if (run.phase !== 'victory') return false;
+  run.phase = maybeLevelUp(run, 'map');
+  return true;
+}
+
+function maybeLevelUp(run, next) {
+  return S.hasUnspentPoints(run.ship) ? 'levelup' : next;
+}
+
+export function spendPoint(run, attrId) {
+  const ok = S.spendAttributePoint(run.ship, attrId);
+  if (ok && !S.hasUnspentPoints(run.ship)) run.phase = 'map';
+  if (ok) fireAchievements(run, 'levelup');
+  return ok;
+}
+
+export function closeLevelUp(run) {
+  run.phase = 'map';
 }
 
 // ---------------------------------------------------------------------------
-// Event resolution
+// Anomalies
 // ---------------------------------------------------------------------------
 
-export function chooseEventOption(run, index) {
-  const event = currentEvent(run);
-  if (!event) return { ok: false, reason: 'No event active' };
-  const choice = event.choices[index];
-  if (!choice) return { ok: false, reason: 'No such choice' };
-
-  const gate = checkRequirement(choice.req, { ship: run.ship, run });
-  if (!gate.ok) return { ok: false, reason: gate.reason };
-
-  const outcome = withRng(run, rng => rollOutcome(rng, choice));
-  run.pendingOutcome = { text: outcome.text || '', effects: [] };
-  applyOutcome(run, outcome);
-
-  if (outcome.combat) {
-    startCombat(run, outcome.combat);
-    return { ok: true, phase: PHASES.COMBAT, outcome: run.pendingOutcome };
-  }
-
-  run.pendingEvent = null;
-  run.phase = PHASES.MAP;
-  autosave(run);
-  return { ok: true, phase: PHASES.MAP, outcome: run.pendingOutcome };
+export function anomalyChoices(run) {
+  const enc = run.encounter;
+  if (!enc?.choices) return [];
+  return enc.choices.map((c, index) => {
+    const gate = checkRequires(run, c.requires);
+    return { index, text: c.text, ok: gate.ok, reason: gate.reason };
+  });
 }
 
-/** Turn an outcome record into actual state changes, logging each one. */
-export function applyOutcome(run, outcome) {
+function checkRequires(run, req) {
+  if (!req) return { ok: true };
   const ship = run.ship;
-  const effects = run.pendingOutcome ? run.pendingOutcome.effects : [];
-  const range = v => (Array.isArray(v) ? withRng(run, rng => rng.int(v[0], v[1])) : v);
-  const note = (text, kind = 'neutral') => effects.push({ text, kind });
-
-  if (outcome.scrap != null) {
-    const n = range(outcome.scrap);
-    run.scrap = Math.max(0, run.scrap + n);
-    if (n > 0) run.stats.scrapEarned += n;
-    note(`${n >= 0 ? '+' : ''}${n} scrap`, n >= 0 ? 'good' : 'bad');
+  if (req.credits != null && ship.credits < req.credits) {
+    return { ok: false, reason: `Needs ${req.credits} credits` };
   }
-  if (outcome.fuel != null) {
-    const n = range(outcome.fuel);
-    run.fuel = Math.max(0, run.fuel + n);
-    note(`${n >= 0 ? '+' : ''}${n} fuel`, n >= 0 ? 'good' : 'bad');
+  if (req.level != null && ship.progress.level < req.level) {
+    return { ok: false, reason: `Needs level ${req.level}` };
   }
-  if (outcome.missiles != null) {
-    const n = range(outcome.missiles);
-    run.missiles = Math.max(0, run.missiles + n);
-    note(`${n >= 0 ? '+' : ''}${n} missiles`, n >= 0 ? 'good' : 'bad');
-  }
-  if (outcome.droneParts != null) {
-    const n = range(outcome.droneParts);
-    run.droneParts = Math.max(0, run.droneParts + n);
-    note(`${n >= 0 ? '+' : ''}${n} drone parts`, n >= 0 ? 'good' : 'bad');
-  }
-  if (outcome.hull != null) {
-    const n = range(outcome.hull);
-    if (n >= 0) repairHull(ship, n);
-    else ship.hull = Math.max(0, ship.hull + n);
-    note(`${n >= 0 ? '+' : ''}${n} hull`, n >= 0 ? 'good' : 'bad');
-    if (ship.hull <= 0) return endRun(run, false, 'Your ship broke apart.');
-  }
-  if (outcome.hullRepairFull) {
-    const gained = ship.maxHull - ship.hull;
-    repairHull(ship, gained);
-    note(`Hull fully repaired (+${gained})`, 'good');
-  }
-  if (outcome.fire) {
-    withRng(run, rng => {
-      for (let i = 0; i < outcome.fire; i++) ship.rooms[rng.int(0, ship.rooms.length - 1)].fire = 0.4;
-    });
-    note('Fire aboard!', 'bad');
-  }
-  if (outcome.breach) {
-    withRng(run, rng => {
-      for (let i = 0; i < outcome.breach; i++) ship.rooms[rng.int(0, ship.rooms.length - 1)].breaches += 1;
-    });
-    note('Hull breach!', 'bad');
-  }
-  if (outcome.ionAll) {
-    for (const sys of Object.values(ship.systems)) {
-      sys.ionCharges = Math.min(sys.level, sys.ionCharges + outcome.ionAll);
-      sys.ionTimer = Math.max(sys.ionTimer, 8);
-    }
-    note(`Systems ionised (${outcome.ionAll})`, 'bad');
-  }
-  if (outcome.crewHurt) {
-    const dmg = range(outcome.crewHurt);
-    const alive = livingCrew(ship);
-    if (alive.length) {
-      const victim = withRng(run, rng => rng.pick(alive));
-      victim.hp = Math.max(1, victim.hp - dmg);
-      note(`${victim.name} injured (-${dmg} health)`, 'bad');
+  if (req.attr) {
+    for (const [k, v] of Object.entries(req.attr)) {
+      if ((ship.progress.attributes[k] || 0) < v) {
+        return { ok: false, reason: `Needs ${k} ${v}` };
+      }
     }
   }
-  if (outcome.crew === 'lose') {
-    const alive = livingCrew(ship);
-    if (alive.length > 1) {
-      const victim = withRng(run, rng => rng.pick(alive));
-      victim.dead = true;
-      run.stats.crewLost++;
-      note(`${victim.name} was lost`, 'bad');
-    }
-  } else if (outcome.crew && typeof outcome.crew === 'object') {
-    if (livingCrew(ship).length >= ship.crewSlots) {
-      note('No room aboard for another crew member', 'neutral');
-    } else {
-      const race = outcome.crew.race
-        || withRng(run, rng => rollRace(rng, run.sectorIndex + 1));
-      const c = withRng(run, rng => makeCrew(race, { rng, room: 0 }));
-      ship.crew.push(c);
-      run.stats.crewHired++;
-      note(`${c.name} (${RACES[race].name}) joined the crew`, 'good');
-    }
+  if (req.slotItem && !ship.equipped[req.slotItem]) {
+    return { ok: false, reason: `Needs something in ${req.slotItem}` };
   }
-  if (outcome.weapon) {
-    const id = outcome.weapon === true ? rollItem(run, WEAPONS) : outcome.weapon;
-    if (id) {
-      if (addWeapon(ship, id)) note(`Acquired ${getWeapon(id).name}`, 'good');
-      else { run.scrap += Math.round(getWeapon(id).cost * 0.5); note(`No free hardpoint — sold ${getWeapon(id).name}`, 'neutral'); }
-    }
-  }
-  if (outcome.drone) {
-    const id = outcome.drone === true ? rollItem(run, DRONES) : outcome.drone;
-    if (id) {
-      if (addDrone(ship, id)) note(`Acquired ${getDrone(id).name}`, 'good');
-      else { run.scrap += Math.round(getDrone(id).cost * 0.5); note(`No free drone bay — sold ${getDrone(id).name}`, 'neutral'); }
-    }
-  }
-  if (outcome.augment) {
-    const id = outcome.augment === true ? rollItem(run, AUGMENTS) : outcome.augment;
-    if (id && !ship.augments.includes(id)) {
-      ship.augments.push(id);
-      note(`Installed ${getAugment(id).name}`, 'good');
-      if (getAugment(id).effect.revealMap) revealMap(run.map);
-    }
-  }
-  if (outcome.revealMap) {
-    revealMap(run.map);
-    note('Sector charts updated', 'good');
-  }
-  if (outcome.fleetAdvance) {
-    advanceFleet(run.map, outcome.fleetAdvance);
-    note('The pursuing fleet gains ground', 'bad');
-  }
-  if (outcome.unlockShip) {
-    const id = nextLockedShip(run);
-    if (id) {
-      run.pendingShipUnlock = id;
-      note(`Recovered a derelict hull: the ${getShip(id).name}`, 'good');
-    } else {
-      run.scrap += 40;
-      note('The hull is a duplicate of one you already own. Stripped for +40 scrap.', 'neutral');
-    }
-  }
-
-  run.stats.lowestHull = Math.min(run.stats.lowestHull, ship.hull);
-  if (run.stats.lowestHull <= 3 && ship.hull === ship.maxHull) run.stats.recoveredFromCritical = true;
-  checkAchievements(run, 'outcome');
   return { ok: true };
 }
 
-function rollItem(run, table) {
-  return withRng(run, rng => {
-    const sector = run.sectorIndex + 1;
-    const pool = Object.values(table)
-      .filter(i => !i.friendly)
-      .map(item => ({ item, weight: rarityWeight(item.rarity || 1, sector) }))
-      .filter(p => p.weight > 0);
-    return pool.length ? rng.weighted(pool).item.id : null;
-  });
-}
+export function chooseAnomaly(run, index) {
+  const enc = run.encounter;
+  const choice = enc?.choices?.[index];
+  if (!choice) return null;
+  if (!checkRequires(run, choice.requires).ok) return null;
 
-function nextLockedShip(run) {
-  const owned = run.unlockedDuringRun || [];
-  return SHIP_IDS.find(id => id !== run.shipId && !owned.includes(id)) || null;
-}
+  const outcome = run.rng.weighted(
+    choice.outcomes.map(o => ({ o, weight: o.weight ?? 1 })), 'weight').o;
 
-// ---------------------------------------------------------------------------
-// Combat
-// ---------------------------------------------------------------------------
+  const applied = applyEffects(run, outcome.effects || {});
+  run.stats.anomaliesResolved++;
+  run.anomalyResult = { text: outcome.text, effects: applied };
 
-export function startCombat(run, spec = {}) {
-  const sector = run.sectorIndex + 1;
-  const enemy = withRng(run, rng => (spec.boss
-    ? generateBoss(rng, spec.phase || 1)
-    : generateEnemy(rng, sector, spec)));
-
-  if (spec.weakened) {
-    enemy.hull = Math.max(3, Math.round(enemy.hull * 0.6));
-    for (const sys of Object.values(enemy.systems)) sys.damage = Math.min(sys.level, sys.damage + 1);
-  }
-  if (spec.extraScrap) enemy.rewardScrap += spec.extraScrap;
-
-  const beacon = beaconById(run.map, run.map.currentId);
-  const environment = pickEnvironment(run, beacon);
-
-  const rng = rngFor(run);
-  const combat = new Combat(run.ship, enemy, rng, {
-    environment,
-    runState: run,
-    canFlee: !spec.mustKill,
-    onEvent: (type, payload) => handleCombatEvent(run, type, payload),
-  });
-  // Combat owns the RNG for its duration; the state is written back on end.
-  run._combatRng = rng;
-  run.combat = combat;
-  run.combatMeta = {
-    startHull: run.ship.hull, weaponDamage: 0, firesExtinguished: 0,
-    mustKill: !!spec.mustKill, boss: !!spec.boss, phase: spec.phase || 0,
-  };
-  run.phase = PHASES.COMBAT;
-
-  if (spec.surprise) {
-    // An ambush lands the first blow before you can react.
-    for (const w of enemy.weapons) if (w.powered) w.charge = getWeapon(w.weaponId).charge;
-  }
-  if (spec.playerAdvantage) {
-    for (const w of run.ship.weapons) if (w.powered) w.charge = getWeapon(w.weaponId).charge;
+  if (applied.combat) {
+    // The choice turned into a fight; the node clears only if you win it.
+    run.encounter = getEncounter(applied.combat);
+    run.phase = 'brief';
+    return run.anomalyResult;
   }
 
-  pushLog(run, `Engaging ${enemy.name} (${enemy.className}).`);
-  return combat;
+  U.markCleared(run.map, run.node.id);
+  run.stats.nodesCleared++;
+  logLine(run, `${enc.name}: ${outcome.text}`);
+  fireAchievements(run, 'anomaly');
+  return run.anomalyResult;
 }
 
-function pickEnvironment(run, beacon) {
-  if (!beacon) return null;
-  const sectorType = SECTOR_TYPES[run.map.sectorType];
-  if (sectorType?.nebula) return 'nebula';
-  if (beacon.type !== 'hazard') return null;
-  return withRng(run, rng => rng.pick(['asteroids', 'solar', 'pulsar']));
+/** Close the anomaly result card. */
+export function closeAnomaly(run) {
+  run.anomalyResult = null;
+  run.phase = maybeLevelUp(run, 'map');
 }
 
-function handleCombatEvent(run, type, payload) {
-  const meta = run.combatMeta;
-  switch (type) {
-    case 'fireOut':
-      if (payload.side === 'player') meta.firesExtinguished++;
-      break;
-    case 'crewDied':
-      if (payload.side === 'player') run.stats.crewLost++;
-      else if (payload.cause === 'boarders') run.stats.boardingKills++;
-      break;
-    case 'hullHit':
-      if (payload.side === 'enemy') meta.weaponDamage += payload.damage;
-      break;
-    case 'hullRepaired':
-      if (payload.side === 'player' && payload.source === 'nanoforge') run.stats.nanoforgeRepairs++;
-      break;
-    case 'mindcontrol':
-      if (payload.side === 'enemy') run.stats.mindControls++;
-      break;
-    case 'combatEnd':
-      finishCombat(run, payload);
-      break;
-    default:
-      break;
-  }
-  if (run.onCombatEvent) run.onCombatEvent(type, payload);
-}
-
-/** Called when the Combat object reports an outcome. */
-function finishCombat(run, payload) {
-  const combat = run.combat;
-  if (!combat) return;
-  run.rngState = (run._combatRng || rngFor(run)).serialize();
-  run._combatRng = null;
-
-  const meta = run.combatMeta || {};
-  const hullLost = (meta.startHull ?? run.ship.hull) - run.ship.hull;
-
-  if (payload.outcome === 'victory') {
-    run.stats.shipsDestroyed++;
-    if (payload.captured) run.stats.captures++;
-    const r = combat.rewards || {};
-    run.scrap += r.scrap || 0;
-    run.fuel += r.fuel || 0;
-    run.missiles += r.missiles || 0;
-    run.droneParts += r.droneParts || 0;
-    run.stats.scrapEarned += r.scrap || 0;
-    run.combatRewards = r;
-
-    if (r.weapon) applyOutcomeSilently(run, { weapon: r.weapon });
-    if (r.drone) applyOutcomeSilently(run, { drone: r.drone });
-    if (r.augment) applyOutcomeSilently(run, { augment: r.augment });
-
-    pushLog(run, `Destroyed ${combat.enemy.name}. +${r.scrap || 0} scrap.`);
-    checkAchievements(run, 'combatVictory', {
-      captured: !!payload.captured, hullLost,
-      enemyFires: activeFires(combat.enemy),
-      playerWeaponDamage: meta.weaponDamage,
-      combatFiresExtinguished: meta.firesExtinguished,
-    });
-    checkAchievements(run, 'shipDestroyed');
-
-    if (meta.boss) {
-      handleBossPhaseEnd(run, meta.phase);
-      return;
-    }
-  } else if (payload.outcome === 'defeat') {
-    endRun(run, false, 'Your ship was destroyed.');
-    return;
-  } else if (payload.outcome === 'fled') {
-    pushLog(run, 'You jumped out mid-fight.');
-  } else if (payload.outcome === 'enemyFled') {
-    pushLog(run, `${combat.enemy.name} escaped.`);
-  }
-
-  run.combat = null;
-  run.pendingEvent = null;
-  run.phase = PHASES.MAP;
-  autosave(run);
-}
-
-function applyOutcomeSilently(run, outcome) {
-  const prev = run.pendingOutcome;
-  run.pendingOutcome = { text: '', effects: [] };
-  applyOutcome(run, outcome);
-  const gained = run.pendingOutcome.effects;
-  run.pendingOutcome = prev;
-  if (prev) prev.effects.push(...gained);
-}
-
-function handleBossPhaseEnd(run, phase) {
-  if (phase < 3) {
-    pushLog(run, `Flagship phase ${phase} disabled. It is bringing more systems online.`);
-    run.combat = null;
-    run.bossPhase = phase + 1;
-    run.phase = PHASES.MAP;
-    // The flagship repairs itself between phases; so should you.
-    run.pendingOutcome = {
-      text: `The flagship's hull buckles and its next weapon array comes online. Phase ${phase + 1} incoming.`,
-      effects: [{ text: 'Between phases, your crew make emergency repairs', kind: 'good' }],
-    };
-    repairHull(run.ship, Math.ceil(run.ship.maxHull * 0.2));
-    autosave(run);
-    return;
-  }
-  checkAchievements(run, 'bossKilled');
-  endRun(run, true, 'The Swarm Flagship is destroyed.');
-}
-
-/** Start the next boss phase — called from the map screen in the final sector. */
-export function engageBoss(run) {
-  const phase = run.bossPhase || 1;
-  startCombat(run, { boss: true, phase, mustKill: true });
-  return run.combat;
-}
-
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
-
-export function buyItem(run, itemIndex) {
-  const store = run.store;
-  if (!store) return { ok: false, reason: 'Not at a store' };
-  const item = store.items[itemIndex];
-  if (!item || item.sold) return { ok: false, reason: 'Item unavailable' };
-  if (run.scrap < item.cost) return { ok: false, reason: 'Not enough scrap' };
-
+function applyEffects(run, fx) {
   const ship = run.ship;
-  switch (item.kind) {
-    case 'weapon':
-      if (ship.weapons.length >= ship.weaponSlots) return { ok: false, reason: 'No free weapon slot' };
-      addWeapon(ship, item.id);
-      break;
-    case 'drone':
-      if (ship.drones.length >= ship.droneSlots) return { ok: false, reason: 'No free drone slot' };
-      addDrone(ship, item.id);
-      break;
-    case 'augment':
-      if (ship.augments.includes(item.id)) return { ok: false, reason: 'Already installed' };
-      ship.augments.push(item.id);
-      if (getAugment(item.id).effect.revealMap) revealMap(run.map);
-      break;
-    case 'crew': {
-      if (livingCrew(ship).length >= ship.crewSlots) return { ok: false, reason: 'No room for more crew' };
-      const c = withRng(run, rng => makeCrew(item.id, { rng, room: 0 }));
-      ship.crew.push(c);
-      run.stats.crewHired++;
-      break;
-    }
-    case 'system':
-      if (!installSystem(ship, item.id)) return { ok: false, reason: 'Cannot install that system' };
-      break;
-    default:
-      return { ok: false, reason: 'Unknown item' };
-  }
+  const threat = run.node?.threat ?? 1;
+  const out = {};
 
-  run.scrap -= item.cost;
-  item.sold = true;
-  checkAchievements(run, 'purchase');
-  autosave(run);
+  if (fx.credits) {
+    const delta = Math.round(fx.credits > 0
+      ? fx.credits * (1 + (ship.stats.creditsPct || 0))
+      : fx.credits);
+    ship.credits = Math.max(0, ship.credits + delta);
+    out.credits = delta;
+  }
+  if (fx.xp) { out.levels = S.addXp(ship, fx.xp); out.xp = fx.xp; }
+  if (fx.hull) {
+    if (fx.hull < 0) { ship.hull = Math.max(0, ship.hull + fx.hull); out.hull = fx.hull; }
+    else out.hull = S.repair(ship, fx.hull);
+  }
+  if (fx.hullPct) {
+    const amount = ship.stats.maxHull * fx.hullPct;
+    if (amount < 0) { ship.hull = Math.max(0, ship.hull + amount); out.hull = Math.round(amount); }
+    else out.hull = Math.round(S.repair(ship, amount));
+  }
+  if (fx.heal) out.hull = Math.round(S.repairFraction(ship, fx.heal));
+  if (fx.crates) {
+    out.items = S.rollLoot(ship, run.rng, { threat, crates: fx.crates });
+    for (const it of out.items) if (!S.addItem(ship, it)) ship.credits += sellValue(it);
+    run.stats.itemsFound += out.items.length;
+  }
+  if (fx.item) {
+    const it = generateItem(run.rng, {
+      slot: fx.item.slot || run.rng.pick(SLOT_IDS),
+      level: threat,
+      rarity: fx.item.rarity || null,
+      luck: ship.stats.luck || 0,
+    });
+    out.items = (out.items || []).concat(it);
+    if (!S.addItem(ship, it)) ship.credits += sellValue(it);
+    run.stats.itemsFound++;
+  }
+  if (fx.attributePoint) {
+    ship.progress.unspentPoints += fx.attributePoint;
+    out.attributePoint = fx.attributePoint;
+  }
+  if (fx.reveal) {
+    out.reveal = U.revealFrom(run.map, run.map.currentId, U.scanRadius(ship) + fx.reveal);
+  }
+  if (fx.combat) out.combat = fx.combat;
+
+  // An anomaly can kill you outright. It should be rare, and it should count.
+  if (ship.hull <= 0) {
+    run.phase = 'dead';
+    run.stats.deaths++;
+    fireAchievements(run, 'death');
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Shops
+// ---------------------------------------------------------------------------
+
+function rollShopStock(run, node) {
+  const rng = run.rng.fork(`shop${node.id}`);
+  const count = rng.int(4, 6);
+  const items = [];
+  for (let i = 0; i < count; i++) {
+    items.push(generateItem(rng, {
+      slot: rng.pick(SLOT_IDS),
+      level: node.threat,
+      luck: run.ship.stats.luck || 0,
+      rarityFloor: node.threat >= 10 ? 2 : 1,
+    }));
+  }
+  const repairCost = Math.max(1, Math.round(
+    (run.ship.stats.maxHull - run.ship.hull) * 1.6 * (1 - (run.ship.stats.repairDiscount || 0))));
+  return { items, repairCost, repaired: false };
+}
+
+export function buyItem(run, uid) {
+  const stock = run.shopStock;
+  const item = stock?.items.find(i => i.uid === uid);
+  if (!item) return { ok: false, reason: 'not for sale' };
+  if (run.ship.credits < item.value) return { ok: false, reason: 'not enough credits' };
+  if (!S.addItem(run.ship, item)) return { ok: false, reason: 'inventory full' };
+  run.ship.credits -= item.value;
+  run.stats.creditsSpent += item.value;
+  stock.items = stock.items.filter(i => i.uid !== uid);
   return { ok: true, item };
 }
 
-export function sellEquipment(run, kind, slot) {
-  const ship = run.ship;
-  let id = null;
-  if (kind === 'weapon') {
-    if (ship.weapons.length <= 1) return { ok: false, reason: 'You must keep at least one weapon' };
-    id = ship.weapons[slot]?.weaponId;
-    if (id) ship.weapons.splice(slot, 1), ship.weapons.forEach((w, i) => { w.slot = i; });
-  } else if (kind === 'drone') {
-    id = ship.drones[slot]?.droneId;
-    if (id) ship.drones.splice(slot, 1), ship.drones.forEach((d, i) => { d.slot = i; });
-  } else if (kind === 'augment') {
-    id = ship.augments[slot];
-    if (id) ship.augments.splice(slot, 1);
-  }
-  if (!id) return { ok: false, reason: 'Nothing to sell' };
-  const value = sellValue(kind, id);
-  run.scrap += value;
-  autoAssignPower(ship);
-  autosave(run);
-  return { ok: true, value, id };
+export function sellItem(run, uid) {
+  const item = S.removeItem(run.ship, uid);
+  if (!item) return { ok: false, reason: 'not in inventory' };
+  const price = sellValue(item);
+  run.ship.credits += price;
+  run.stats.itemsSold++;
+  return { ok: true, price };
 }
 
-export function buyResource(run, kind, amount = 1) {
-  const store = run.store;
-  if (!store) return { ok: false, reason: 'Not at a store' };
-  const price = { fuel: store.fuelPrice, missiles: store.missilePrice, droneParts: store.dronePartPrice }[kind];
-  if (price == null) return { ok: false, reason: 'Not sold here' };
-  const total = price * amount;
-  if (run.scrap < total) return { ok: false, reason: 'Not enough scrap' };
-  run.scrap -= total;
-  run[kind] += amount;
-  autosave(run);
-  return { ok: true, spent: total };
+export function buyRepair(run) {
+  const stock = run.shopStock;
+  if (!stock || stock.repaired) return { ok: false, reason: 'nothing to repair' };
+  if (run.ship.credits < stock.repairCost) return { ok: false, reason: 'not enough credits' };
+  run.ship.credits -= stock.repairCost;
+  run.stats.creditsSpent += stock.repairCost;
+  const healed = S.repair(run.ship, run.ship.stats.maxHull);
+  run.stats.hullRepaired += healed;
+  stock.repaired = true;
+  return { ok: true, healed };
 }
 
-export function repairAtStore(run, hullPoints = 1) {
-  const store = run.store;
-  if (!store) return { ok: false, reason: 'Not at a store' };
-  const ship = run.ship;
-  const needed = ship.maxHull - ship.hull;
-  const points = Math.min(hullPoints, needed);
-  if (points <= 0) return { ok: false, reason: 'Hull is already full' };
-
-  const discount = 1 - augmentValue(ship.augments, 'repairDiscount', 0);
-  const cost = Math.ceil(store.repairPrice * points * discount);
-  if (run.scrap < cost) return { ok: false, reason: 'Not enough scrap' };
-
-  run.scrap -= cost;
-  repairHull(ship, points);
-  autosave(run);
-  return { ok: true, repaired: points, cost };
-}
-
-export function upgradeSystem(run, sysId) {
-  const ship = run.ship;
-  const sys = ship.systems[sysId];
-  if (!sys) return { ok: false, reason: 'System not installed' };
-  const cost = upgradeCost(sysId, sys.level);
-  if (cost === null) return { ok: false, reason: 'Already at maximum level' };
-  if (run.scrap < cost) return { ok: false, reason: 'Not enough scrap' };
-
-  run.scrap -= cost;
-  sys.level += 1;
-  autoAssignPower(ship);
-  checkAchievements(run, 'upgrade', {
-    systemMax: Object.fromEntries(Object.keys(ship.systems).map(id => [id, getSystem(id).maxLevel])),
-  });
-  autosave(run);
-  return { ok: true, level: sys.level, cost };
-}
-
-export function upgradeReactor(run) {
-  const cost = reactorUpgradeCost(run.ship.reactor);
-  if (cost === null) return { ok: false, reason: 'Reactor is at maximum' };
-  if (run.scrap < cost) return { ok: false, reason: 'Not enough scrap' };
-  run.scrap -= cost;
-  run.ship.reactor += 1;
-  autoAssignPower(run.ship);
-  autosave(run);
-  return { ok: true, reactor: run.ship.reactor, cost };
-}
-
-export function leaveStore(run) {
-  run.store = null;
-  run.phase = PHASES.MAP;
-  autosave(run);
-  return { ok: true };
+export function leaveShop(run) {
+  U.markCleared(run.map, run.node.id);
+  run.shopStock = null;
+  run.phase = maybeLevelUp(run, 'map');
 }
 
 // ---------------------------------------------------------------------------
-// Sector transitions
+// Achievements
 // ---------------------------------------------------------------------------
 
-export function canLeaveSector(run) {
-  return run.phase === PHASES.MAP && atExit(run.map);
+function fireAchievements(run, event, extra = {}) {
+  if (!run.profile) return;
+  const earned = checkAchievements(run, event, extra);
+  if (earned.length) run.newAchievements.push(...earned);
 }
 
-export function openSectorChoice(run) {
-  if (!canLeaveSector(run)) return { ok: false, reason: 'You must be at the sector exit' };
-  const current = run.sectorTree.sectors[run.currentSectorId];
-  const links = current.links || [];
-  if (links.length === 0) return { ok: false, reason: 'No further sectors' };
-  run.sectorChoices = links.map(id => {
-    const s = run.sectorTree.sectors[id];
-    return { id, type: s.type, name: SECTOR_TYPES[s.type].name, blurb: SECTOR_TYPES[s.type].blurb, isFinal: !!s.isFinal };
-  });
-  run.phase = PHASES.SECTOR_CHOICE;
-  return { ok: true, choices: run.sectorChoices };
-}
-
-export function enterSector(run, sectorId) {
-  const target = run.sectorTree.sectors[sectorId];
-  if (!target) return { ok: false, reason: 'Unknown sector' };
-  const current = run.sectorTree.sectors[run.currentSectorId];
-  if (!(current.links || []).includes(sectorId)) return { ok: false, reason: 'Not reachable from here' };
-  if (run.fuel <= 0) return { ok: false, reason: 'Out of fuel' };
-
-  run.fuel -= 1;
-  run.currentSectorId = sectorId;
-  run.sectorIndex = target.depth;
-  target.visited = true;
-  run.map = withRng(run, rng => generateSectorMap(rng, target));
-  if (hasAugment(run.ship.augments, 'fleet_sensor')) revealMap(run.map);
-  run.sectorChoices = null;
-  run.phase = PHASES.MAP;
-  run.ship.ftlCharge = 0;
-  postJumpRecovery(run);
-
-  // Arriving in a new sector is worth a small resupply from the locals.
-  pushLog(run, `Entered sector ${run.sectorIndex + 1}: ${SECTOR_TYPES[target.type].name}.`);
-  checkAchievements(run, 'sector');
-
-  if (target.isFinal) {
-    run.bossPhase = run.bossPhase || 1;
-    pushLog(run, 'The Swarm Flagship is here. There is nowhere left to run.');
-  }
-  autosave(run);
-  return { ok: true, sector: run.sectorIndex + 1 };
+export function drainAchievements(run) {
+  const out = run.newAchievements;
+  run.newAchievements = [];
+  return out;
 }
 
 // ---------------------------------------------------------------------------
-// Achievements, scoring, ending
+// Serialisation
 // ---------------------------------------------------------------------------
 
-/**
- * Evaluate achievements against the current state. `profile` is attached to the
- * run by the app layer so this stays synchronous.
- */
-export function checkAchievements(run, event, extra = {}) {
-  const profile = run.profile;
-  if (!profile) return [];
-
-  const ctx = {
-    run, ship: run.ship, profile, event,
-    systemMax: Object.fromEntries(Object.keys(run.ship.systems).map(id => [id, getSystem(id).maxLevel])),
-    ...extra,
+export function serialize(run) {
+  return {
+    seed: run.seed,
+    rngState: run.rng.serialize(),
+    map: U.serialize(run.map),
+    ship: {
+      shipId: run.ship.shipId,
+      progress: run.ship.progress,
+      equipped: run.ship.equipped,
+      inventory: run.ship.inventory,
+      hull: run.ship.hull,
+      credits: run.ship.credits,
+    },
+    elapsed: run.elapsed,
+    masterFleetStage: run.masterFleetStage,
+    stats: run.stats,
+    log: run.log.slice(0, 20),
   };
-
-  const earned = [...evaluate(ctx)];
-  for (const id of earned) {
-    profile.achievements[id] = { at: Date.now(), ship: run.shipId };
-  }
-
-  const shipEarned = evaluateShip(ctx);
-  if (shipEarned.length) {
-    if (!profile.shipAchievements[run.shipId]) profile.shipAchievements[run.shipId] = {};
-    for (const id of shipEarned) profile.shipAchievements[run.shipId][id] = true;
-    // Any ship achievement unlocks that hull's second layout.
-    if (unlockShip(profile, run.shipId, 'B')) {
-      run.newAchievements.push({ id: `${run.shipId}_layoutB`, name: `${getShip(run.shipId).name}: Layout B unlocked`, unlock: true });
-    }
-  }
-
-  const all = [...earned, ...shipEarned];
-  for (const id of all) {
-    const def = achievementById(id);
-    if (def) run.newAchievements.push({ id, name: def.name, desc: def.desc });
-  }
-  return all;
 }
 
-/**
- * Run score. Rewards depth, kills and efficiency, so a deep loss can still beat
- * a sloppy win on the leaderboard.
- */
-export function computeScore(run, won) {
-  const s = run.stats;
-  let score = 0;
-  score += (run.sectorIndex + 1) * 120;
-  score += s.shipsDestroyed * 45;
-  score += s.scrapEarned;
-  score += s.beacons * 8;
-  score += livingCrew(run.ship).length * 25;
-  score += Math.round(run.ship.hull * 4);
-  if (won) score = Math.round(score * 2.2 + 800);
-  // A brisk run scores better than a grind.
-  if (won && run.elapsed > 0) score += Math.max(0, Math.round((3600 - run.elapsed) / 4));
-  return Math.max(0, Math.round(score));
-}
+export function deserialize(data, profile = null) {
+  const rng = RNG.deserialize(data.rngState);
+  const run = startRun({ shipId: data.ship.shipId, seed: data.seed, profile });
 
-export function endRun(run, won, cause) {
-  if (run.phase === PHASES.GAME_OVER || run.phase === PHASES.VICTORY) return run;
-  run.phase = won ? PHASES.VICTORY : PHASES.GAME_OVER;
-  run.won = won;
-  run.cause = cause;
-  run.score = computeScore(run, won);
-  run.combat = null;
-  clearRun();
-
-  const profile = run.profile;
-  if (profile) {
-    checkAchievements(run, 'runEnd', { score: run.score });
-
-    if (won) {
-      // Winning with a hull unlocks the next hull in the progression.
-      const next = SHIP_IDS.find(id => getShip(id).unlockedBy === run.shipId);
-      if (next && unlockShip(profile, next, 'A')) {
-        run.newAchievements.push({ id: `unlock_${next}`, name: `${getShip(next).name} unlocked`, unlock: true });
-      }
-      unlockShip(profile, run.shipId, 'B');
-    }
-    if (run.pendingShipUnlock && unlockShip(profile, run.pendingShipUnlock, 'A')) {
-      run.newAchievements.push({ id: `unlock_${run.pendingShipUnlock}`, name: `${getShip(run.pendingShipUnlock).name} unlocked`, unlock: true });
-    }
-
-    recordRunResult(profile, {
-      won, shipId: run.shipId, variant: run.variant, shipName: run.shipName,
-      sector: run.sectorIndex + 1, score: run.score, seconds: run.elapsed,
-      beacons: run.stats.beacons, shipsDestroyed: run.stats.shipsDestroyed,
-      crewLost: run.stats.crewLost, scrapEarned: run.stats.scrapEarned,
-      jumps: run.stats.jumps, cause, seed: run.seed,
-    });
-    checkAchievements(run, 'runEnd', { score: run.score });
-  }
-
-  pushLog(run, won ? 'Victory.' : `Run over: ${cause}`);
+  run.rng = rng;
+  run.map = U.deserialize(data.map, new RNG(data.seed).fork('universe'));
+  run.ship.progress = data.ship.progress;
+  run.ship.equipped = data.ship.equipped;
+  run.ship.inventory = data.ship.inventory || [];
+  run.ship.credits = data.ship.credits;
+  S.recompute(run.ship);
+  run.ship.hull = Math.min(data.ship.hull, run.ship.stats.maxHull);
+  run.elapsed = data.elapsed || 0;
+  run.masterFleetStage = data.masterFleetStage || 0;
+  run.stats = { ...run.stats, ...data.stats };
+  run.log = data.log || [];
+  run.node = U.currentNode(run.map);
+  run.phase = 'map';
   return run;
 }
 
-/**
- * Advance the clock and the out-of-combat ship simulation.
- *
- * This matters as much as the combat loop: between fights the crew are
- * repairing damaged systems, fighting residual fires, sealing breaches and
- * spinning up the FTL drive. Without it, damage taken in sector 1 would still
- * be there at the flagship.
- */
-export function tick(run, dt) {
-  if (run.phase === PHASES.GAME_OVER || run.phase === PHASES.VICTORY) return;
-  run.elapsed += dt;
-  if (run.phase === PHASES.COMBAT) return; // Combat drives the ship itself.
-
-  // Step in slices so a large dt (a slow frame, or the bot's 6s steps) still
-  // produces the same behaviour as many small ones.
-  let remaining = Math.min(dt, 30);
-  withRng(run, rng => {
-    while (remaining > 0) {
-      const step = Math.min(0.25, remaining);
-      updateShip(run.ship, step, {
-        rng, inCombat: false,
-        onEvent: (type, payload) => {
-          if (type === 'crewDied') run.stats.crewLost++;
-          if (type === 'hullRepaired' && payload.source === 'nanoforge') run.stats.nanoforgeRepairs++;
-        },
-      });
-      remaining -= step;
-    }
-  });
-
-  if (run.ship.hull <= 0) endRun(run, false, 'Your ship broke apart.');
-  else if (livingCrew(run.ship).length === 0) endRun(run, false, 'Your crew are all dead.');
-}
-
-// ---------------------------------------------------------------------------
-// Distress signal
-// ---------------------------------------------------------------------------
-
-/**
- * Stranded without fuel, you can broadcast for help. Someone always answers;
- * whether that is good news depends on the neighbourhood. This is the valve
- * that stops a run from dead-ending at zero fuel, so it can always be used.
- */
-export function canSendDistress(run) {
-  return run.phase === PHASES.MAP && run.fuel <= 0;
-}
-
-export function sendDistressSignal(run) {
-  if (!canSendDistress(run)) return { ok: false, reason: 'You still have fuel' };
-
-  run.stats.distressCalls = (run.stats.distressCalls || 0) + 1;
-  // Each repeated call is likelier to attract the wrong kind of attention.
-  const trouble = Math.min(0.6, 0.2 + run.stats.distressCalls * 0.08);
-  const dangerous = SECTOR_TYPES[run.map.sectorType]?.danger ?? 1;
-
-  const result = withRng(run, rng => {
-    if (rng.chance(trouble * dangerous)) {
-      return { kind: 'ambush', fuel: rng.int(1, 2) };
-    }
-    if (rng.chance(0.25)) {
-      return { kind: 'trade', fuel: rng.int(1, 3), scrapCost: Math.min(run.scrap, rng.int(8, 20)) };
-    }
-    return { kind: 'help', fuel: rng.int(1, 3) };
-  });
-
-  run.pendingOutcome = { text: '', effects: [] };
-
-  switch (result.kind) {
-    case 'help':
-      run.fuel += result.fuel;
-      run.pendingOutcome.text = 'A passing freighter answers and transfers fuel across without asking for anything.';
-      run.pendingOutcome.effects.push({ text: `+${result.fuel} fuel`, kind: 'good' });
-      pushLog(run, `Distress signal answered: +${result.fuel} fuel.`);
-      break;
-    case 'trade':
-      run.fuel += result.fuel;
-      run.scrap = Math.max(0, run.scrap - result.scrapCost);
-      run.pendingOutcome.text = 'A trader answers. They will help — at their price.';
-      run.pendingOutcome.effects.push({ text: `+${result.fuel} fuel`, kind: 'good' });
-      run.pendingOutcome.effects.push({ text: `-${result.scrapCost} scrap`, kind: 'bad' });
-      pushLog(run, `Bought ${result.fuel} fuel from a passing trader.`);
-      break;
-    case 'ambush':
-      run.fuel += result.fuel;
-      run.pendingOutcome.text = 'Something answers your signal. It is not here to help.';
-      run.pendingOutcome.effects.push({ text: `+${result.fuel} fuel salvaged`, kind: 'good' });
-      pushLog(run, 'The distress signal was answered by raiders.');
-      startCombat(run, { classId: 'pirate', surprise: true });
-      return { ok: true, kind: 'ambush', phase: PHASES.COMBAT, outcome: run.pendingOutcome };
-    default:
-      break;
-  }
-
-  autosave(run);
-  return { ok: true, kind: result.kind, phase: PHASES.MAP, outcome: run.pendingOutcome };
-}
-
-export function resourceWarnings(run) {
-  const out = [];
-  if (run.fuel <= 0) out.push({ kind: 'fuel', severity: 'critical', text: 'No fuel — you cannot jump.' });
-  else if (run.fuel <= STARTING_FUEL_WARNING) out.push({ kind: 'fuel', severity: 'warning', text: `Only ${run.fuel} fuel left.` });
-  if (run.ship.hull <= run.ship.maxHull * 0.25) out.push({ kind: 'hull', severity: 'critical', text: 'Hull critical.' });
-  if (livingCrew(run.ship).length === 0) out.push({ kind: 'crew', severity: 'critical', text: 'No crew left aboard.' });
-  return out;
-}
+export { WORLD_W, WORLD_H };

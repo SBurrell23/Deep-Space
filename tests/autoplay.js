@@ -1,247 +1,296 @@
 /**
- * Headless autoplayer.
+ * Headless playtester.
  *
- * Plays complete runs with a simple but not stupid bot: it upgrades sensibly,
- * buys what it can afford, targets enemy weapons and shields, and flees when
- * it is losing badly. Used both as a soak test (does a full run ever throw or
- * deadlock?) and as a balance probe (how far does a mediocre pilot get?).
+ * Drives complete runs through the real simulation with no renderer, which is
+ * how the game's pacing, difficulty curve and two-hour target are tuned. The
+ * bot is deliberately imperfect and its competence is a parameter, so a build
+ * can be checked against a range of player skill rather than one ideal pilot.
  *
- *   node tests/autoplay.js --runs 50 --ship kestrel --verbose
+ *   node tests/autoplay.js --runs 20 --skill 0.7
+ *   node tests/autoplay.js --runs 5 --verbose
+ *   node tests/autoplay.js --matrix          skill sweep, for balance passes
  */
+
 import { installAll } from './harness.js';
 installAll();
 
 const { RNG } = await import('../src/core/rng.js');
-const { DEFAULT_PROFILE } = await import('../src/core/save.js');
-const run_ = await import('../src/game/run.js');
-const { PHASES } = run_;
-const { reachableBeacons, atExit, beaconById } = await import('../src/game/sector.js');
-const { eventChoices } = run_;
-const { livingCrew, isWeaponReady, toggleWeapon } = await import('../src/game/ship.js');
-const { upgradeOptions } = await import('../src/game/store.js');
-const { getWeapon } = await import('../src/game/weapons.js');
+const R = await import('../src/game/run.js');
+const U = await import('../src/game/universe.js');
+const S = await import('../src/game/ship.js');
+const { SHIP_IDS } = await import('../src/game/ships.js');
+const { ATTRIBUTE_IDS } = await import('../src/game/attributes.js');
+const { powerScore } = await import('../src/game/items.js');
+const { loadProfile } = await import('../src/core/save.js');
+const { createPilot, pilotInput } = await import('./pilot.js');
 
-const MAX_STEPS = 4000;
-const MAX_COMBAT_TICKS = 9000;
+const DT = 1 / 60;
+/** Wall-clock guard so a broken encounter can't hang the whole sweep. */
+const MAX_ENCOUNTER_SECONDS = 300;
+const MAX_RUN_SECONDS = 4 * 60 * 60;
 
-/** Play one run to completion. Returns a result record. */
-export function playRun({ seed, shipId = 'kestrel', variant = 'A', verbose = false } = {}) {
-  const profile = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
-  const rng = new RNG(`BOT-${seed}`);
-  const run = run_.startRun(profile, shipId, variant, seed);
-  run.profile = profile;
+// ---------------------------------------------------------------------------
+// Strategic layer: map navigation and between-fight decisions
+// ---------------------------------------------------------------------------
 
-  const log = [];
-  const say = m => { log.push(m); if (verbose) console.log('   ' + m); };
+function chooseNode(run, pilot) {
+  const map = run.map;
+  const level = run.ship.progress.level;
+  const hullFrac = S.hullFraction(run.ship);
+  const options = U.reachable(map);
+  if (options.length === 0) return null;
 
-  let steps = 0;
-  while (steps++ < MAX_STEPS) {
-    if (run.phase === PHASES.GAME_OVER || run.phase === PHASES.VICTORY) break;
+  // Push for the Master Fleet once strong enough and it is on the board.
+  const goingForIt = level >= 18 && map.masterFleetVisible && hullFrac > 0.6;
+
+  let best = null, bestScore = -Infinity;
+  for (const n of options) {
+    let score = 0;
+    const fresh = !n.cleared;
+    if (!fresh) score -= 40;
+
+    // Threat appetite scales with skill: a good pilot punches up.
+    const appetite = level + 1 + pilot.skill * 3;
+    const over = n.threat - appetite;
+    if (over > 0) score -= over * over * 5;
+    else score += Math.min(6, n.threat) * 3;   // prefer meaningful fights
+
+    if (fresh) {
+      if (n.type === 'shop') score += hullFrac < 0.65 ? 55 : 12;
+      if (n.type === 'anomaly') score += 16;
+      if (n.type === 'empty') score -= 12;
+      if (n.type === 'boss') score += level > n.threat + 2 ? 20 : -25;
+      if (n.type === 'masterfleet') score += goingForIt ? 500 : -500;
+    }
+
+    // Bias outward — depth is progress. Retreat inward when badly hurt.
+    const here = U.currentNode(map);
+    const outward = n.ring - here.ring;
+    score += hullFrac < 0.35 ? -outward * 22 : outward * 16;
+
+    // Break ties randomly so repeat runs don't follow identical paths.
+    score += pilot.rng.float(0, 8);
+
+    if (score > bestScore) { bestScore = score; best = n; }
+  }
+  return best;
+}
+
+function manageLoadout(run) {
+  const ship = run.ship;
+  // Equip anything better than what is in the slot, sell the rest.
+  for (const item of [...ship.inventory]) {
+    if (S.isUpgrade(ship, item)) S.equip(ship, item.uid);
+  }
+  while (ship.inventory.length > 18) {
+    const worst = [...ship.inventory].sort((a, b) => powerScore(a) - powerScore(b))[0];
+    R.sellItem(run, worst.uid);
+  }
+}
+
+function spendPoints(run, pilot) {
+  const ship = run.ship;
+  // A simple but sane build: keep survivability ahead of damage, then top up
+  // whatever is lowest. Mirrors how most players actually spend.
+  while (S.hasUnspentPoints(ship)) {
+    const a = ship.progress.attributes;
+    let pick;
+    if (a.hull <= a.weapons - 2) pick = 'hull';
+    else if (a.shields <= a.weapons - 2) pick = 'shields';
+    else if (a.reactor < 4) pick = 'reactor';
+    else if (pilot.rng.chance(0.42)) pick = 'weapons';
+    else pick = ATTRIBUTE_IDS.reduce((lo, id) => (a[id] < a[lo] ? id : lo), ATTRIBUTE_IDS[0]);
+    if (!R.spendPoint(run, pick)) break;
+  }
+  if (run.phase === 'levelup') R.closeLevelUp(run);
+}
+
+function handleShop(run) {
+  const ship = run.ship;
+  if (S.hullFraction(ship) < 0.8) R.buyRepair(run);
+  // Buy any affordable clear upgrade.
+  for (const item of [...(run.shopStock?.items || [])]) {
+    if (ship.credits < item.value) continue;
+    if (S.isUpgrade(ship, item)) {
+      const res = R.buyItem(run, item.uid);
+      if (res.ok) S.equip(ship, item.uid);
+    }
+  }
+  R.leaveShop(run);
+}
+
+function handleAnomaly(run, pilot) {
+  const choices = R.anomalyChoices(run).filter(c => c.ok);
+  if (choices.length === 0) { run.phase = 'map'; return; }
+  // Bolder pilots take the gated/risky option more often.
+  const idx = pilot.rng.chance(0.35 + pilot.skill * 0.3)
+    ? choices[choices.length - 1].index
+    : pilot.rng.pick(choices).index;
+  R.chooseAnomaly(run, idx);
+  if (run.phase === 'anomaly') R.closeAnomaly(run);
+}
+
+// ---------------------------------------------------------------------------
+// Run driver
+// ---------------------------------------------------------------------------
+
+export function playRun({ shipId = 'kestrel', seed = null, skill = 0.7, verbose = false, profile = null } = {}) {
+  const rng = new RNG(seed ? `${seed}-pilot` : Date.now());
+  const pilot = createPilot(skill, rng);
+  const run = R.startRun({ shipId, seed, profile: profile || loadProfile() });
+
+  const trace = [];
+  let guard = 0;
+  const encounterTimes = [];
+
+  while (run.phase !== 'dead' && run.phase !== 'victory' && guard++ < 4000) {
+    if (run.elapsed > MAX_RUN_SECONDS) { run.timedOut = true; break; }
 
     switch (run.phase) {
-      case PHASES.MAP: {
-        run.ship.ftlCharge = 1; // the bot always waits for the drive
-
-        // Final sector: fight the flagship.
-        if (run.sectorTree.sectors[run.currentSectorId].isFinal) {
-          run_.engageBoss(run);
-          break;
+      case 'map': {
+        const node = chooseNode(run, pilot);
+        if (!node) { run.stuck = true; guard = Infinity; break; }
+        R.jump(run, node.id);
+        break;
+      }
+      case 'brief':
+        R.beginEncounter(run);
+        break;
+      case 'action': {
+        const t0 = run.world.time;
+        while (run.phase === 'action' && run.world.time < MAX_ENCOUNTER_SECONDS) {
+          pilotInput(run.world, pilot, DT);
+          R.tick(run, DT);
         }
-        if (atExit(run.map)) {
-          const open = run_.openSectorChoice(run);
-          if (!open.ok) { run_.endRun(run, false, 'stuck at exit'); break; }
-          break;
+        if (run.phase === 'action') {
+          // Ran out of patience — treat as a disengage so the run continues.
+          R.flee(run);
+          R.tick(run, DT);
         }
-        if (run.fuel <= 0) { const d = run_.sendDistressSignal(run); if (!d.ok) { run_.endRun(run, false, 'stranded'); } break; }
-        const options = reachableBeacons(run.map).filter(b => !b.fleet || run.map.beacons.every(x => x.fleet));
-        const pool = options.length ? options : reachableBeacons(run.map);
-        if (pool.length === 0) { run_.endRun(run, false, 'nowhere to jump'); break; }
-
-        // Head east: take the exit or a store when adjacent, otherwise the
-        // beacon that makes the most progress toward the sector exit.
-        const exit = beaconById(run.map, run.map.exitId);
-        const pick = pool.find(b => b.isExit)
-          || pool.find(b => b.type === 'store' && !b.visited)
-          || pool.slice().sort((p, q) =>
-              (Math.abs(p.x - exit.x) + Math.abs(p.y - exit.y) * 0.4)
-            - (Math.abs(q.x - exit.x) + Math.abs(q.y - exit.y) * 0.4))[0];
-        const res = run_.jump(run, pick.id);
-        if (!res.ok) { run_.endRun(run, false, 'jump failed: ' + res.reason); }
+        encounterTimes.push(run.world ? run.world.time - t0 : 0);
         break;
       }
-
-      case PHASES.EVENT: {
-        const choices = eventChoices(run);
-        const usable = choices.filter(c => c.ok);
-        if (usable.length === 0) { run_.endRun(run, false, 'event with no valid choice'); break; }
-        // Take a gated (usually better) option when one is available.
-        const gated = usable.filter(c => c.index > 0);
-        const choice = gated.length && rng.chance(0.7) ? rng.pick(gated) : usable[0];
-        const r = run_.chooseEventOption(run, choice.index);
-        if (!r.ok) { run_.endRun(run, false, 'choice failed: ' + r.reason); }
-        break;
-      }
-
-      case PHASES.COMBAT: {
-        const c = run.combat;
-        if (!c) { run.phase = PHASES.MAP; break; }
-        aimWeapons(run, c);
-        let ticks = 0;
-        while (!c.over && ticks++ < MAX_COMBAT_TICKS) {
-          c.update(0.05);
-          if (ticks % 20 === 0) {
-            aimWeapons(run, c);
-            // Bail out of a hopeless fight if the drive is ready.
-            if (run.ship.hull <= 4 && run.ship.ftlCharge >= 1 && !run.combatMeta.mustKill) {
-              c.playerFlee();
-            }
-          }
+      case 'debrief': {
+        const enc = run.encounter;
+        const p = run.pending;
+        R.collectRewards(run);
+        if (verbose && p && !p.fled) {
+          trace.push(`  ${pad(enc.type, 12)} t${pad(run.node?.threat, 2)} `
+            + `${p.time.toFixed(0)}s  +${p.xp}xp +${p.credits}cr  `
+            + `hull ${Math.round(run.ship.hull)}/${run.ship.stats.maxHull}  L${run.ship.progress.level}`);
         }
-        if (!c.over) {
-          // Stalemate: treat as a flee so the run can continue.
-          c.finish('fled');
-          say('stalemate at sector ' + (run.sectorIndex + 1));
-        }
+        manageLoadout(run);
         break;
       }
-
-      case PHASES.STORE: {
-        shop(run, rng);
-        run_.leaveStore(run);
-        break;
-      }
-
-      case PHASES.SECTOR_CHOICE: {
-        const choices = run.sectorChoices || [];
-        if (!choices.length) { run_.endRun(run, false, 'no sector choices'); break; }
-        const r = run_.enterSector(run, rng.pick(choices).id);
-        if (!r.ok) { run_.endRun(run, false, 'sector entry failed: ' + r.reason); }
-        break;
-      }
-
+      case 'levelup': spendPoints(run, pilot); break;
+      case 'shop': handleShop(run); break;
+      case 'anomaly': handleAnomaly(run, pilot); break;
       default:
-        run_.endRun(run, false, 'unknown phase ' + run.phase);
+        guard = Infinity;
     }
-    run_.tick(run, 6);
-  }
-
-  if (steps >= MAX_STEPS && !run.won && run.phase !== PHASES.GAME_OVER) {
-    run_.endRun(run, false, 'step limit reached');
   }
 
   return {
-    seed, shipId, variant,
-    won: !!run.won,
-    sector: run.sectorIndex + 1,
-    cause: run.cause,
-    score: run.score,
-    hull: run.ship.hull,
-    crew: livingCrew(run.ship).length,
-    scrap: run.scrap,
-    kills: run.stats.shipsDestroyed,
-    beacons: run.stats.beacons,
-    achievements: Object.keys(profile.achievements).length,
-    steps,
-    log,
+    outcome: run.phase === 'victory' ? 'victory' : run.stuck ? 'stuck' : run.timedOut ? 'timeout' : 'death',
+    elapsed: run.elapsed,
+    level: run.ship.progress.level,
+    ring: run.stats.deepestRing,
+    nodes: run.stats.nodesCleared,
+    kills: run.stats.kills,
+    bosses: run.stats.bossesKilled,
+    credits: run.ship.credits,
+    hull: Math.round(run.ship.hull),
+    maxHull: run.ship.stats.maxHull,
+    accuracy: run.stats.shotsFired ? run.stats.shotsHit / run.stats.shotsFired : 0,
+    fled: run.stats.encountersFled,
+    perfect: run.stats.perfectClears,
+    avgEncounter: encounterTimes.length
+      ? encounterTimes.reduce((a, b) => a + b, 0) / encounterTimes.length : 0,
+    encounters: encounterTimes.length,
+    attributes: { ...run.ship.progress.attributes },
+    seed: run.seed,
+    shipId,
+    trace,
   };
 }
 
-function aimWeapons(run, c) {
-  const enemy = c.enemy;
-  const priority = ['shields', 'weapons', 'engines', 'piloting'];
-  let roomId = null;
-  for (const sysId of priority) {
-    const s = enemy.systems[sysId];
-    if (s && s.room != null && s.damage < s.level) { roomId = s.room; break; }
-  }
-  if (roomId == null) roomId = 0;
-  for (const w of run.ship.weapons) {
-    // Don't spend missiles we don't have.
-    const def = getWeapon(w.weaponId);
-    if (def.ammo && run.missiles < def.ammo) { w.targetRoom = null; continue; }
-    w.targetRoom = roomId;
-    w.autofire = true;
-  }
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+function pad(v, n) { return String(v).padEnd(n); }
+function mins(s) { return `${Math.floor(s / 60)}m${String(Math.round(s % 60)).padStart(2, '0')}s`; }
+
+function summarise(label, results) {
+  const wins = results.filter(r => r.outcome === 'victory');
+  const avg = (f) => results.reduce((a, r) => a + f(r), 0) / Math.max(1, results.length);
+  const med = (f) => {
+    const v = results.map(f).sort((a, b) => a - b);
+    return v[Math.floor(v.length / 2)] ?? 0;
+  };
+
+  console.log(`\n  ${label}`);
+  console.log(`    runs:          ${results.length}`);
+  console.log(`    win rate:      ${(wins.length / results.length * 100).toFixed(0)}%`);
+  console.log(`    median length: ${mins(med(r => r.elapsed))}   (wins: ${wins.length ? mins(median(wins.map(r => r.elapsed))) : '-'})`);
+  console.log(`    avg level:     ${avg(r => r.level).toFixed(1)}   max ${Math.max(...results.map(r => r.level))}`);
+  console.log(`    avg ring:      ${avg(r => r.ring).toFixed(1)}   max ${Math.max(...results.map(r => r.ring))}`);
+  console.log(`    avg nodes:     ${avg(r => r.nodes).toFixed(0)}`);
+  console.log(`    avg encounter: ${avg(r => r.avgEncounter).toFixed(0)}s over ${avg(r => r.encounters).toFixed(0)} fights`);
+  console.log(`    accuracy:      ${(avg(r => r.accuracy) * 100).toFixed(0)}%`);
+  console.log(`    disengages:    ${avg(r => r.fled).toFixed(1)} per run`);
+  const bad = results.filter(r => r.outcome === 'stuck' || r.outcome === 'timeout');
+  if (bad.length) console.log(`    PROBLEMS:      ${bad.length} (${bad.map(r => r.outcome).join(', ')})`);
+  return { wins: wins.length, total: results.length, medianLength: med(r => r.elapsed) };
 }
 
-function shop(run, rng) {
-  const ship = run.ship;
-  // Repair first — hull is the resource that ends runs.
-  const missing = ship.maxHull - ship.hull;
-  if (missing > 0) {
-    const budget = Math.floor(run.scrap * 0.45);
-    const affordable = Math.min(missing, Math.floor(budget / Math.max(1, run.store.repairPrice)));
-    if (affordable > 0) run_.repairAtStore(run, affordable);
-  }
-  // Then shields, then engines, then weapons.
-  for (const sysId of ['shields', 'engines', 'weapons']) {
-    const opt = upgradeOptions(ship).find(o => o.id === sysId);
-    if (opt && !opt.atMax && run.scrap >= opt.cost + 20) run_.upgradeSystem(run, sysId);
-  }
-  // Buy fuel if low.
-  while (run.fuel < 12 && run.scrap >= run.store.fuelPrice + 15) run_.buyResource(run, 'fuel', 1);
-  // Buy a weapon if there's a free slot and plenty of scrap.
-  run.store.items.forEach((item, i) => {
-    if (item.sold) return;
-    if (item.kind === 'weapon' && ship.weapons.length < ship.weaponSlots && run.scrap >= item.cost + 40) {
-      run_.buyItem(run, i);
-    } else if (item.kind === 'crew' && livingCrew(ship).length < ship.crewSlots && run.scrap >= item.cost + 60) {
-      run_.buyItem(run, i);
+function median(arr) {
+  const v = [...arr].sort((a, b) => a - b);
+  return v[Math.floor(v.length / 2)] ?? 0;
+}
+
+const args = process.argv.slice(2);
+const arg = (name, dflt) => {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 ? args[i + 1] : dflt;
+};
+
+if (args.includes('--matrix')) {
+  console.log('Skill sweep — is the game beatable, and does skill matter?');
+  for (const skill of [0.35, 0.55, 0.75, 0.95]) {
+    const results = [];
+    for (let i = 0; i < Number(arg('runs', 8)); i++) {
+      results.push(playRun({ seed: `MX-${skill}-${i}`, skill }));
     }
-  });
-  void rng;
-}
-
-// --- CLI -------------------------------------------------------------------
-
-const isMain = process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('tests/autoplay.js');
-if (isMain) {
-  const args = process.argv.slice(2);
-  const argVal = (flag, def) => {
-    const i = args.indexOf(flag);
-    return i >= 0 ? args[i + 1] : def;
-  };
-  const runs = parseInt(argVal('--runs', '30'), 10);
-  const shipId = argVal('--ship', 'kestrel');
-  const variant = argVal('--variant', 'A');
+    summarise(`skill ${skill}`, results);
+  }
+} else if (args.includes('--ships')) {
+  console.log('Per-hull sweep');
+  for (const shipId of SHIP_IDS) {
+    const results = [];
+    for (let i = 0; i < Number(arg('runs', 4)); i++) {
+      results.push(playRun({ shipId, seed: `SH-${shipId}-${i}`, skill: 0.75 }));
+    }
+    summarise(shipId, results);
+  }
+} else {
+  const n = Number(arg('runs', 10));
+  const skill = Number(arg('skill', 0.7));
   const verbose = args.includes('--verbose');
-
   const results = [];
-  const errors = [];
-  const t0 = Date.now();
-  for (let i = 0; i < runs; i++) {
-    try {
-      results.push(playRun({ seed: `AUTO-${shipId}-${i}`, shipId, variant, verbose }));
-    } catch (err) {
-      errors.push({ i, message: err.message, stack: err.stack?.split('\n').slice(0, 4).join('\n') });
+  for (let i = 0; i < n; i++) {
+    const r = playRun({ seed: `AP-${i}`, skill, verbose });
+    results.push(r);
+    if (verbose) {
+      console.log(`\nrun ${i + 1}: ${r.outcome} — L${r.level} ring ${r.ring}, ${r.nodes} nodes, ${mins(r.elapsed)}`);
+      r.trace.slice(0, 40).forEach(t => console.log(t));
+    } else {
+      process.stdout.write(r.outcome === 'victory' ? 'W' : r.outcome === 'death' ? '.' : '?');
     }
   }
-  const ms = Date.now() - t0;
-
-  const wins = results.filter(r => r.won).length;
-  const avgSector = results.reduce((n, r) => n + r.sector, 0) / Math.max(1, results.length);
-  const maxSector = Math.max(0, ...results.map(r => r.sector));
-  const avgKills = results.reduce((n, r) => n + r.kills, 0) / Math.max(1, results.length);
-  const avgScore = results.reduce((n, r) => n + (r.score || 0), 0) / Math.max(1, results.length);
-
-  console.log(`\nAUTOPLAY  ${shipId}_${variant}  ${runs} runs in ${ms}ms`);
-  console.log(`  crashes:      ${errors.length}`);
-  console.log(`  wins:         ${wins}/${results.length} (${(wins / Math.max(1, results.length) * 100).toFixed(0)}%)`);
-  console.log(`  avg sector:   ${avgSector.toFixed(2)}  (best ${maxSector})`);
-  console.log(`  avg kills:    ${avgKills.toFixed(1)}`);
-  console.log(`  avg score:    ${Math.round(avgScore)}`);
-
-  const causes = {};
-  for (const r of results) if (!r.won) causes[r.cause || 'unknown'] = (causes[r.cause || 'unknown'] || 0) + 1;
-  console.log('  death causes:', JSON.stringify(causes));
-
-  const dist = {};
-  for (const r of results) dist[r.sector] = (dist[r.sector] || 0) + 1;
-  console.log('  sector reached:', Object.entries(dist).sort((a, b) => a[0] - b[0]).map(([k, v]) => `s${k}:${v}`).join(' '));
-
-  if (errors.length) {
-    console.log('\n  CRASHES:');
-    for (const e of errors.slice(0, 5)) console.log(`   run ${e.i}: ${e.message}\n${e.stack}`);
-    process.exit(1);
-  }
+  if (!verbose) console.log('');
+  const sum = summarise(`skill ${skill}`, results);
+  // Non-zero exit if the game is structurally broken, so CI catches it.
+  const broken = results.filter(r => r.outcome === 'stuck').length;
+  process.exit(broken > 0 ? 1 : 0);
 }

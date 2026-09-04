@@ -1,0 +1,394 @@
+/**
+ * Enemy movement behaviours and bullet patterns.
+ *
+ * Both are pure: movement mutates only the enemy's own kinematics, and fire
+ * patterns RETURN bullet descriptors rather than spawning them. The simulation
+ * owns all world mutation, which keeps these testable in isolation and lets the
+ * headless playtester run thousands of encounters without a renderer.
+ *
+ * Coordinate convention: the player flies on the LEFT, enemies enter from the
+ * RIGHT and travel in -x. Angle 0 points +x (right), PI points left.
+ */
+
+const TAU = Math.PI * 2;
+
+// ---------------------------------------------------------------------------
+// Movement
+//
+// Each function receives (e, world, dt). `e.mem` is scratch space owned by the
+// behaviour; `e.spawnX/spawnY` are where it entered; `e.holdX` is the x it wants
+// to settle at for behaviours that stand off and shoot.
+// ---------------------------------------------------------------------------
+
+export const MOVEMENTS = {
+  /** Straight in, no cleverness. */
+  straight(e, world, dt) {
+    e.vx = -e.speed;
+    e.vy = 0;
+  },
+
+  /** Sine weave — the classic shmup approach. */
+  sine(e, world, dt) {
+    e.mem.t = (e.mem.t || 0) + dt;
+    e.vx = -e.speed;
+    const amp = e.mem.amp ?? (e.mem.amp = 90);
+    const freq = e.mem.freq ?? (e.mem.freq = 1.8);
+    e.vy = Math.cos(e.mem.t * freq + (e.mem.phase || 0)) * amp;
+  },
+
+  /** Sharp direction flips rather than a smooth curve. */
+  zigzag(e, world, dt) {
+    e.mem.t = (e.mem.t || 0) + dt;
+    const period = e.mem.period ?? (e.mem.period = 0.7);
+    e.vx = -e.speed;
+    e.vy = (Math.floor(e.mem.t / period) % 2 === 0 ? 1 : -1) * e.speed * 0.8;
+  },
+
+  /** Dive toward the player's y, then level out and continue. */
+  swoop(e, world, dt) {
+    const p = world.player;
+    e.vx = -e.speed;
+    const dy = p.y - e.y;
+    e.vy += clamp(dy, -1, 1) * e.speed * 2.4 * dt;
+    e.vy = clamp(e.vy, -e.speed * 1.1, e.speed * 1.1);
+  },
+
+  /**
+   * Fly in to a standoff x, then strafe vertically while shooting. The bread
+   * and butter of anything that is meant to be shot at rather than dodged.
+   */
+  hover(e, world, dt) {
+    const hold = e.holdX ?? (e.holdX = world.w * (0.55 + (e.mem.holdJitter || 0)));
+    if (e.x > hold) {
+      e.vx = -e.speed;
+      e.vy *= 0.9;
+    } else {
+      e.vx *= 0.86;
+      e.mem.t = (e.mem.t || 0) + dt;
+      const amp = e.mem.amp ?? (e.mem.amp = e.speed * 0.55);
+      e.vy = Math.sin(e.mem.t * (e.mem.freq || 1.1) + (e.mem.phase || 0)) * amp;
+    }
+  },
+
+  /**
+   * Accelerate at the player, then break off and come round again. Unlike
+   * `kamikaze` it survives the pass, but it must still disengage: anything that
+   * homes continuously at close range is unshakeable rather than dangerous.
+   */
+  charge(e, world, dt) {
+    const p = world.player;
+    e.mem.recover = (e.mem.recover || 0) - dt;
+
+    if (e.mem.recover > 0) {
+      // Peeling away after a pass.
+      e.vx += e.speed * 2.2 * dt;
+      e.vy += (e.mem.peel || 1) * e.speed * 1.2 * dt;
+    } else {
+      const dist = Math.hypot(p.x - e.x, p.y - e.y);
+      if (dist < 80) {
+        e.mem.recover = 1.4;
+        e.mem.peel = Math.sign(e.y - p.y) || 1;
+      }
+      const a = Math.atan2(p.y - e.y, p.x - e.x);
+      e.vx += Math.cos(a) * e.speed * 3 * dt;
+      e.vy += Math.sin(a) * e.speed * 3 * dt;
+    }
+    const sp = Math.hypot(e.vx, e.vy);
+    const max = e.speed * 1.35;
+    if (sp > max) { e.vx = e.vx / sp * max; e.vy = e.vy / sp * max; }
+  },
+
+  /**
+   * A committed ram. It tracks hard at range, then locks its heading in once
+   * close and flies THROUGH where you were.
+   *
+   * The commit is essential. A kamikaze that steers all the way in is faster
+   * than the player and therefore undodgeable — it simply attaches and grinds
+   * you down at contact damage, which killed a threat-8 ship in eleven seconds
+   * without the player landing a shot. Losing steering authority at close range
+   * turns it into what it should be: a telegraphed attack you sidestep.
+   */
+  kamikaze(e, world, dt) {
+    const p = world.player;
+    const dist = Math.hypot(p.x - e.x, p.y - e.y);
+
+    // Once it has passed the player it is spent; let it sail off the field.
+    if (e.mem.spent || e.x < p.x - 70) {
+      e.mem.spent = true;
+      return;
+    }
+
+    // Steering authority falls off inside 180 units and is gone by 90.
+    const authority = clamp((dist - 90) / 90, 0, 1);
+    if (authority > 0.02) {
+      const a = Math.atan2(p.y - e.y, p.x - e.x);
+      const accel = e.speed * 4.5 * authority;
+      e.vx += Math.cos(a) * accel * dt;
+      e.vy += Math.sin(a) * accel * dt;
+    }
+    const sp = Math.hypot(e.vx, e.vy);
+    const max = e.speed * 1.9;
+    if (sp > max) { e.vx = e.vx / sp * max; e.vy = e.vy / sp * max; }
+  },
+
+  /** Circle the player at a set radius. */
+  orbit(e, world, dt) {
+    const p = world.player;
+    const radius = e.mem.radius ?? (e.mem.radius = 220);
+    const dir = e.mem.dir ?? (e.mem.dir = 1);
+    const dx = e.x - p.x, dy = e.y - p.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const a = Math.atan2(dy, dx);
+    // Radial correction toward the desired radius, plus a tangential push.
+    const radial = (d - radius) * -1.6;
+    const tx = -Math.sin(a) * dir, ty = Math.cos(a) * dir;
+    e.vx = (dx / d) * radial + tx * e.speed;
+    e.vy = (dy / d) * radial + ty * e.speed;
+  },
+
+  /** Hold station near where it spawned, bobbing slightly. Turrets, mines. */
+  guard(e, world, dt) {
+    e.mem.t = (e.mem.t || 0) + dt;
+    const driftX = e.mem.drift ?? (e.mem.drift = -34);
+    e.vx = driftX;
+    e.vy = Math.sin(e.mem.t * 0.9 + (e.mem.phase || 0)) * 26;
+  },
+
+  /** Slow, unaimed tumble. Debris and mines. */
+  drift(e, world, dt) {
+    e.mem.t = (e.mem.t || 0) + dt;
+    e.vx = -(e.speed * 0.4);
+    e.vy = Math.sin(e.mem.t * 0.5 + (e.mem.phase || 0)) * 18;
+  },
+
+  /**
+   * Close to knife range, fire, then peel away and come back. Makes an enemy
+   * feel like it is being flown rather than driven.
+   */
+  strafe_run(e, world, dt) {
+    const p = world.player;
+    e.mem.phaseName = e.mem.phaseName || 'in';
+    e.mem.t = (e.mem.t || 0) + dt;
+    if (e.mem.phaseName === 'in') {
+      const a = Math.atan2(p.y - e.y, p.x - e.x);
+      e.vx = Math.cos(a) * e.speed;
+      e.vy = Math.sin(a) * e.speed;
+      if (e.x - p.x < 190) { e.mem.phaseName = 'out'; e.mem.t = 0; }
+    } else {
+      e.vx = e.speed * 0.9;
+      e.vy = (e.mem.outDir ?? (e.mem.outDir = Math.sign(e.y - p.y) || 1)) * e.speed * 0.5;
+      if (e.mem.t > 1.6) { e.mem.phaseName = 'in'; e.mem.t = 0; e.mem.outDir = undefined; }
+    }
+  },
+
+  /** Mirrors the player's vertical position from a standoff distance. */
+  mirror(e, world, dt) {
+    const p = world.player;
+    const hold = e.holdX ?? (e.holdX = world.w * 0.72);
+    e.vx = e.x > hold ? -e.speed : (hold - e.x) * 1.2;
+    e.vy = clamp((p.y - e.y) * 2.2, -e.speed, e.speed);
+  },
+
+  /** Actively avoids the player, keeping its distance. Support ships. */
+  skittish(e, world, dt) {
+    const p = world.player;
+    const dx = e.x - p.x, dy = e.y - p.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const want = e.mem.keepAway ?? (e.mem.keepAway = 300);
+    const push = d < want ? (want - d) * 2.2 : -20;
+    e.vx = (dx / d) * push - 30;
+    e.vy = (dy / d) * push;
+    e.vx = clamp(e.vx, -e.speed, e.speed * 1.2);
+    e.vy = clamp(e.vy, -e.speed, e.speed);
+  },
+
+  /** Holds a fixed slot in a formation that advances together. */
+  formation(e, world, dt) {
+    const anchorX = e.mem.anchorX ?? (e.mem.anchorX = world.w * 0.7);
+    e.mem.t = (e.mem.t || 0) + dt;
+    const targetX = anchorX + (e.mem.slotX || 0) - Math.min(e.mem.t * 26, world.w * 0.22);
+    const targetY = (e.mem.baseY ?? (e.mem.baseY = e.y))
+      + Math.sin(e.mem.t * 0.8) * 42 + (e.mem.slotY || 0);
+    e.vx = clamp((targetX - e.x) * 2.4, -e.speed * 1.5, e.speed * 1.5);
+    e.vy = clamp((targetY - e.y) * 2.4, -e.speed * 1.5, e.speed * 1.5);
+  },
+
+  /** Comes in fast, stops dead, then leaves the way it came. */
+  hit_and_run(e, world, dt) {
+    e.mem.t = (e.mem.t || 0) + dt;
+    const hold = e.holdX ?? (e.holdX = world.w * 0.5);
+    if (e.mem.t < 6 && e.x > hold) { e.vx = -e.speed * 1.3; e.vy *= 0.9; }
+    else if (e.mem.t < 6) { e.vx *= 0.8; e.vy = Math.sin(e.mem.t * 2) * e.speed * 0.4; }
+    else { e.vx = e.speed * 1.4; e.vy *= 0.95; }
+  },
+};
+
+export const MOVEMENT_IDS = Object.keys(MOVEMENTS);
+
+// ---------------------------------------------------------------------------
+// Fire patterns
+//
+// Each returns an array of bullet descriptors:
+//   { x, y, angle, speed, damage, sprite, life, homing?, radius?, ... }
+// The sim converts these into live bullets and applies enemy damage scaling.
+// ---------------------------------------------------------------------------
+
+const bullet = (e, angle, o = {}) => ({
+  x: e.x, y: e.y,
+  angle,
+  speed: o.speed ?? e.bulletSpeed ?? 280,
+  damage: o.damage ?? e.bulletDamage ?? 8,
+  sprite: o.sprite ?? e.bulletSprite ?? 'eb_bolt',
+  life: o.life ?? 4,
+  ...o,
+});
+
+/** Angle from an enemy toward the player, the basis of every aimed pattern. */
+export function aimAt(e, world) {
+  return Math.atan2(world.player.y - e.y, world.player.x - e.x);
+}
+
+export const FIRE_PATTERNS = {
+  none: () => [],
+
+  /** One aimed shot. */
+  single: (e, world) => [bullet(e, aimAt(e, world))],
+
+  /** Straight down the lane, unaimed — cheap and readable. */
+  forward: (e) => [bullet(e, Math.PI)],
+
+  /** Three aimed shots in a tight fan. */
+  spread3: (e, world) => {
+    const a = aimAt(e, world);
+    return [-0.17, 0, 0.17].map(o => bullet(e, a + o));
+  },
+
+  spread5: (e, world) => {
+    const a = aimAt(e, world);
+    return [-0.34, -0.17, 0, 0.17, 0.34].map(o => bullet(e, a + o));
+  },
+
+  /** A short stream of aimed shots; the sim staggers them via `delay`. */
+  burst3: (e, world) => {
+    const a = aimAt(e, world);
+    return [0, 1, 2].map(i => bullet(e, a, { delay: i * 0.11 }));
+  },
+
+  burst5: (e, world) => {
+    const a = aimAt(e, world);
+    return [0, 1, 2, 3, 4].map(i => bullet(e, a, { delay: i * 0.09 }));
+  },
+
+  /** A full ring. Forces movement rather than positioning. */
+  radial8: (e) => Array.from({ length: 8 }, (_, i) => bullet(e, (i / 8) * TAU)),
+  radial12: (e) => Array.from({ length: 12 }, (_, i) => bullet(e, (i / 12) * TAU)),
+
+  /** A ring that rotates a little each volley, sweeping the field over time. */
+  spiral: (e) => {
+    e.mem.spiralA = ((e.mem.spiralA || 0) + 0.42) % TAU;
+    return Array.from({ length: 4 }, (_, i) => bullet(e, e.mem.spiralA + (i / 4) * TAU));
+  },
+
+  /** Two counter-rotating arms. */
+  spiral_double: (e) => {
+    e.mem.spiralA = ((e.mem.spiralA || 0) + 0.3) % TAU;
+    const out = [];
+    for (let i = 0; i < 3; i++) {
+      out.push(bullet(e, e.mem.spiralA + (i / 3) * TAU));
+      out.push(bullet(e, -e.mem.spiralA + (i / 3) * TAU));
+    }
+    return out;
+  },
+
+  /** A vertical wall with one gap you must find and fly through. */
+  wall: (e, world) => {
+    const rows = 9;
+    const gap = Math.floor((e.mem.rng ? e.mem.rng() : Math.random()) * rows);
+    const out = [];
+    for (let i = 0; i < rows; i++) {
+      if (i === gap || i === gap + 1) continue;
+      out.push(bullet(e, Math.PI, {
+        y: (i + 0.5) * (world.h / rows),
+        x: e.x,
+        sprite: 'eb_wave',
+      }));
+    }
+    return out;
+  },
+
+  /** A slow aimed volley of homing shots. */
+  homing2: (e, world) => {
+    const a = aimAt(e, world);
+    return [-0.3, 0.3].map(o => bullet(e, a + o, {
+      homing: true, turnRate: 2.2, speed: (e.bulletSpeed || 280) * 0.75,
+      sprite: 'eb_homing', life: 5,
+    }));
+  },
+
+  homing1: (e, world) => [bullet(e, aimAt(e, world), {
+    homing: true, turnRate: 2.8, speed: (e.bulletSpeed || 280) * 0.8,
+    sprite: 'eb_homing', life: 5,
+  })],
+
+  /** Heavy, slow, high-damage single shot. Telegraphed by its own slowness. */
+  heavy: (e, world) => [bullet(e, aimAt(e, world), {
+    speed: (e.bulletSpeed || 280) * 0.62,
+    damage: (e.bulletDamage || 8) * 2.4,
+    sprite: 'eb_heavy', radius: 40,
+  })],
+
+  /** A fast thin needle, fired straight. Punishes sitting still. */
+  needle: (e, world) => [bullet(e, aimAt(e, world), {
+    speed: (e.bulletSpeed || 280) * 2.1,
+    sprite: 'eb_needle', damage: (e.bulletDamage || 8) * 1.3,
+  })],
+
+  /** Three needles in quick succession along the same line. */
+  needle_burst: (e, world) => {
+    const a = aimAt(e, world);
+    return [0, 1, 2].map(i => bullet(e, a, {
+      delay: i * 0.07, speed: (e.bulletSpeed || 280) * 2.1, sprite: 'eb_needle',
+    }));
+  },
+
+  /** A slow purple orb that is easy to dodge but hurts badly. */
+  orb: (e, world) => [bullet(e, aimAt(e, world), {
+    speed: (e.bulletSpeed || 280) * 0.45,
+    damage: (e.bulletDamage || 8) * 1.9,
+    sprite: 'eb_orb', radius: 30, life: 8,
+  })],
+
+  /** A sweeping arc, like a turret traversing. */
+  sweep: (e, world) => {
+    e.mem.sweepA = e.mem.sweepA === undefined ? Math.PI - 0.6 : e.mem.sweepA + 0.16;
+    if (e.mem.sweepA > Math.PI + 0.6) e.mem.sweepA = Math.PI - 0.6;
+    return [bullet(e, e.mem.sweepA)];
+  },
+
+  /** Drops a mine that sits and waits. */
+  mine_drop: (e) => [bullet(e, Math.PI, {
+    speed: 30, sprite: 'sw_mine', life: 14, mine: true,
+    damage: (e.bulletDamage || 8) * 2, radius: 70, proximity: 54,
+  })],
+
+  /** Fires backward as it flees — awkward and memorable. */
+  parting_shot: (e, world) => {
+    const a = aimAt(e, world);
+    return [a - 0.12, a + 0.12].map(x => bullet(e, x, { delay: 0 }));
+  },
+
+  /** A cross, forcing diagonal movement. */
+  cross: (e) => [0, Math.PI / 2, Math.PI, -Math.PI / 2].map(a => bullet(e, a)),
+
+  /** A dense aimed cone, short range. */
+  shotgun: (e, world) => {
+    const a = aimAt(e, world);
+    return Array.from({ length: 7 }, (_, i) => bullet(e, a + (i - 3) * 0.11, {
+      speed: (e.bulletSpeed || 280) * (0.8 + (i % 3) * 0.12), life: 1.6,
+    }));
+  },
+};
+
+export const FIRE_PATTERN_IDS = Object.keys(FIRE_PATTERNS);
+
+function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
