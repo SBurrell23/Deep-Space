@@ -35,7 +35,6 @@ export function initSettings(gameProfile, saveFn) {
 
   bindGameOption('#opt-confirm-jump', 'confirmJump');
   bindGameOption('#opt-autofire', 'autofireDefault');
-  bindGameOption('#opt-hints', 'showTutorialHints');
 
   root.addEventListener('click', e => {
     const action = e.target.closest('[data-action]')?.dataset.action;
@@ -89,10 +88,15 @@ export function refresh() {
   $('#out-sfx').textContent = `${Math.round(s.sfx * 100)}%`;
   $('#opt-mute').checked = s.muted;
 
-  for (const [sel, key] of [['#opt-confirm-jump', 'confirmJump'],
-    ['#opt-autofire', 'autofireDefault'], ['#opt-hints', 'showTutorialHints']]) {
+  // Defaults matter here: a checkbox that renders false while the behaviour is
+  // true means the control does nothing until you toggle it twice.
+  const OPTIONS = [
+    ['#opt-confirm-jump', 'confirmJump', false],
+    ['#opt-autofire', 'autofireDefault', true],
+  ];
+  for (const [sel, key, dflt] of OPTIONS) {
     const input = $(sel);
-    if (input && profile) input.checked = !!profile.settings[key];
+    if (input && profile) input.checked = profile.settings[key] ?? dflt;
   }
 
   const note = $('#audio-note');

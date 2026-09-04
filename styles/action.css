@@ -19,7 +19,11 @@
   border: 1px solid var(--amber-2); font-size: 11px;
   animation: pip-pulse 1.6s ease-in-out infinite;
 }
-@keyframes pip-pulse { 50% { background: var(--amber-2); color: var(--void); } }
+/* Pulse the frame, not the ink. Cross-fading the label through its own
+   background drove the "+N points" pip to ~1.2:1 twice a second. */
+@keyframes pip-pulse {
+  50% { border-color: var(--amber-3); box-shadow: 0 0 10px rgba(255, 204, 92, .5); }
+}
 .node-label { color: var(--cyan-3); letter-spacing: .06em; }
 .node-sub { color: var(--steel-4); font-size: 11px; }
 
@@ -269,7 +273,16 @@
   border: 1px solid var(--line); border-radius: var(--r);
   font-family: var(--font); font-size: 11px;
 }
-.launch-btn { margin-top: 18px; }
+/* On a short window the hull sheet is taller than its pane and the one button
+   that starts a run scrolled off the bottom with nothing to say it was there.
+   Pin it to the foot of the scroll port. */
+.launch-btn {
+  margin-top: 18px;
+  position: sticky;
+  bottom: 8px;
+  z-index: 2;
+  box-shadow: 0 6px 18px rgba(5, 7, 15, .85);
+}
 
 /* --- achievements --- */
 .ach-cat {
@@ -325,13 +338,18 @@
   .inv-wrap { grid-template-columns: 1fr; }
   .brief-stats { grid-template-columns: 1fr; }
   .hud-bars { width: min(190px, 44vw); }
-  .wslot { min-width: 0; }
-  .wslot .wname { display: none; }
+  /* Keep the weapon name: "LMB" on its own tells you nothing about what is
+     bound to it, which is the only thing the slot exists to say. */
+  .wslot { min-width: 0; padding: 4px 7px; gap: 6px; }
+  .wslot .wname { font-size: 10px; max-width: 11ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hud-objective { font-size: 10px; padding: 4px 9px; }
   .map-legend { gap: 8px; padding: 5px 8px; }
   .node-card { width: min(230px, 62vw); }
   .hud-dash { bottom: 58px; }
 }
+
+/* Below roughly 540px the status bars and the centred objective pill sit on
+   top of each other. Stack the objective under the bars instead. */
 
 /* --- run log, bottom of the map view --- */
 .event-log {
@@ -348,3 +366,51 @@
 }
 .logline:first-child { color: var(--steel-4); }
 @media (max-width: 860px) { .event-log { display: none; } }
+
+/* --- capital ship readout ---------------------------------------------------
+   The run's set pieces need to announce themselves. A boss sharing the same
+   floating 3px bar as a picket drone tells the player nothing is at stake. */
+.boss-bar {
+  position: absolute; top: 44px; left: 50%; transform: translateX(-50%);
+  width: min(440px, 62%);
+  padding: 6px 10px 7px; border-radius: var(--r);
+  background: rgba(5, 7, 15, .86);
+  border: 1px solid var(--red-2);
+  box-shadow: 0 0 18px rgba(179, 36, 60, .22);
+}
+.bb-name {
+  font-size: 10px; letter-spacing: .18em; color: var(--red-3);
+  text-align: center; margin-bottom: 5px;
+}
+.bb-track {
+  height: 9px; border-radius: 2px; overflow: hidden;
+  background: rgba(92, 20, 32, .5);
+  border: 1px solid rgba(179, 36, 60, .55);
+}
+.bb-track > span {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--red-2), var(--red-3));
+  transition: width .14s linear;
+}
+.boss-bar.critical { animation: boss-crit 1s ease-in-out infinite; }
+@keyframes boss-crit { 50% { box-shadow: 0 0 26px rgba(255, 92, 114, .5); } }
+
+
+/* The status bars (~260px) and the disengage button (~110px) flank the centred
+   readouts. Below ~900px a centred pill overlaps them, so stack everything
+   under the bars instead of letting the hull numbers disappear behind text. */
+@media (max-width: 900px) {
+  .hud-objective {
+    top: 74px; left: 14px; right: 14px;
+    transform: none; text-align: center; white-space: normal;
+  }
+  .boss-bar {
+    top: 104px; left: 14px; right: 14px;
+    width: auto; transform: none;
+  }
+}
+@media (max-width: 900px) and (max-height: 460px) {
+  /* Short and narrow: the bars themselves have to give ground. */
+  .hud-bars { width: min(150px, 34vw); }
+  .hud-bars .bar { height: 12px; }
+}

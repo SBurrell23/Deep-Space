@@ -139,8 +139,8 @@ export function renderHangar(profile, onLaunch) {
     },
     spriteEl(ship.sprite, 1),
     el('div', null,
-      el('div.rname', { text: isUnlocked ? ship.name : 'Locked' }),
-      el('div.rsub', { text: isUnlocked ? ship.tagline : (unlockProgress(profile, id)?.text || '') })));
+      el('div.rname', { text: ship.name }),
+      el('div.rsub', { text: isUnlocked ? ship.tagline : (unlockProgress(profile, id)?.text || 'Locked') })));
     list.append(row);
   }
   select(selected);
@@ -151,8 +151,8 @@ function renderShipDetail(profile, id, isUnlocked, onLaunch) {
   const pane = clear($('#ship-detail'));
 
   pane.append(el('div.detail-hero', null, spriteEl(ship.sprite, 3)));
-  pane.append(el('h3.detail-name', { text: isUnlocked ? ship.name : 'Locked Hull' }));
-  pane.append(el('p.detail-tagline', { text: isUnlocked ? ship.tagline : '' }));
+  pane.append(el('h3.detail-name', { text: ship.name }));
+  pane.append(el('p.detail-tagline', { text: ship.tagline }));
 
   if (!isUnlocked) {
     const prog = unlockProgress(profile, id);

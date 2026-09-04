@@ -60,6 +60,22 @@ export class MapView {
     return { w: Math.max(1, r.width), h: Math.max(1, r.height) };
   }
 
+  /**
+   * Keep the backing store in step with the CSS box. The map is hidden while a
+   * fight is on, so a resize during combat never reaches it — without this the
+   * map comes back stretched, or (on the frame it is first shown) 1x1.
+   */
+  syncSize() {
+    const { w, h } = this.size();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const want = `${Math.round(w)}x${Math.round(h)}x${dpr}`;
+    if (this.canvas.dataset.sized === want) return;
+    this.canvas.dataset.sized = want;
+    this.canvas.width = Math.max(1, Math.floor(w * dpr));
+    this.canvas.height = Math.max(1, Math.floor(h * dpr));
+    this.canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
   /** World (ring units) -> screen pixels. */
   project(node) {
     const { w, h } = this.size();
@@ -92,6 +108,7 @@ export class MapView {
    * @param reachable  ids the player can jump to right now
    */
   draw(map, { level = 1, reachable = [], showAllThreat = false } = {}) {
+    this.syncSize();
     const ctx = this.canvas.getContext('2d');
     const { w, h } = this.size();
     const reach = new Set(reachable.map(n => n.id));

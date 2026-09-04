@@ -129,6 +129,23 @@ export function renderCombatHud() {
   }
   $('#hud-objective').textContent = text;
 
+  // Capital ships get their own readout. A run's climax sharing the same 3px
+  // floating bar as a picket drone tells the player nothing is at stake.
+  const boss = world.enemies.find(e => !e.dead && (e.isBoss || e.tag === 'boss' || e.elite));
+  const bossBar = $('#boss-bar');
+  show(bossBar, !!boss);
+  if (boss) {
+    if (bossBar.dataset.for !== boss.name) {
+      bossBar.dataset.for = boss.name;
+      $('#bb-name').textContent = boss.name.toUpperCase();
+    }
+    const frac = Math.max(0, boss.hull / boss.maxHull);
+    $('#bb-fill').style.width = `${frac * 100}%`;
+    bossBar.classList.toggle('critical', frac <= 0.25);
+  } else {
+    bossBar.dataset.for = '';
+  }
+
   // Weapons.
   const wrap = $('#hud-weapons');
   if (wrap.dataset.built !== world.encounter.id) {
@@ -256,6 +273,14 @@ function bindMap() {
   cv.addEventListener('pointerup', endDrag);
   cv.addEventListener('pointercancel', endDrag);
 
+  // Leaving the map must retire the hover card with the pointer, or it hangs
+  // over the screen describing wherever the mouse last happened to be.
+  cv.addEventListener('pointerleave', () => {
+    if (ui.map.dragging || !ui.hoverNode) return;
+    ui.hoverNode = null;
+    renderNodeCard(null);
+  });
+
   cv.addEventListener('wheel', e => {
     e.preventDefault();
     ui.map.zoomBy(e.deltaY < 0 ? 1.14 : 1 / 1.14);
@@ -368,6 +393,14 @@ export function syncPhase(force = false) {
   show($('#stage-wrap'), inAction);
   show($('#mapcanvas'), !inAction);
   show($('#map-hud'), !inAction);
+  // The run log lives in the same corner as the hull/shield/energy bars. It
+  // belongs to the map, so it goes away the moment a fight starts.
+  show($('#event-log'), !inAction);
+  // The hover card describes a node under the pointer; after a jump the
+  // pointer is nowhere and the card is stale ("Click to jump" on a node you
+  // have already cleared), so drop it on every phase change.
+  ui.hoverNode = null;
+  $('#node-card').hidden = true;
 
   if (!inAction && prev === 'action') ui.effects.items.length = 0;
 
@@ -471,7 +504,8 @@ function openDebrief() {
     rewardRow('icon_scrap', 'Credits', `+${p.credits}`),
     rewardRow('icon_speed', 'Time', `${p.time.toFixed(0)}s`),
     rewardRow('icon_sys_weapons', 'Accuracy', `${Math.round(p.accuracy * 100)}%`),
-    rewardRow('icon_skull', 'Destroyed', String(p.world.stats.kills)));
+    rewardRow('icon_skull', 'Destroyed', String(p.world.stats.kills)),
+    p.escaped ? rewardRow('icon_exit', 'Broke off and fled', String(p.escaped)) : null);
 
   const loot = p.items.length
     ? el('div', null,
@@ -480,7 +514,9 @@ function openDebrief() {
     : null;
 
   openModal({
-    title: p.perfect ? `${p.encounter.name} — Untouched` : `${p.encounter.name} — Cleared`,
+    title: p.perfect ? `${p.encounter.name} — Untouched`
+      : p.completion < 0.75 ? `${p.encounter.name} — Held`
+        : `${p.encounter.name} — Cleared`,
     dismissable: false,
     body: el('div', null, rows, loot),
     actions: [{

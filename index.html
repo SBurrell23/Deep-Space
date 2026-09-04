@@ -111,12 +111,14 @@
     </header>
 
     <div class="play-area" id="play-area">
+      <!-- Universe map. A sibling of the action stage, not a child of it: it
+           fills the whole play area and must survive the stage being hidden. -->
+      <canvas id="mapcanvas"></canvas>
+
       <!-- Action. The wrapper holds the field aspect so the HUD can pin to the
            play field itself rather than to the whole play area. -->
       <div class="stage-wrap" id="stage-wrap" hidden>
         <canvas id="stage"></canvas>
-      <!-- Universe map -->
-      <canvas id="mapcanvas"></canvas>
 
         <!-- Combat HUD, drawn in DOM over the stage -->
         <div class="combat-hud" id="combat-hud">
@@ -126,6 +128,10 @@
           <div class="bar bar-energy"><i></i><span id="bar-energy"></span><b id="energy-num"></b></div>
         </div>
         <div class="hud-objective" id="hud-objective"></div>
+        <div class="boss-bar" id="boss-bar" hidden>
+          <div class="bb-name" id="bb-name"></div>
+          <div class="bb-track"><span id="bb-fill"></span></div>
+        </div>
         <div class="hud-weapons" id="hud-weapons"></div>
         <div class="hud-abilities" id="hud-abilities"></div>
         <div class="hud-dash" id="hud-dash"></div>
@@ -194,10 +200,6 @@
       <div class="setting-row setting-check">
         <input type="checkbox" id="opt-autofire">
         <label for="opt-autofire">Hold-to-fire (uncheck for autofire)</label>
-      </div>
-      <div class="setting-row setting-check">
-        <input type="checkbox" id="opt-hints">
-        <label for="opt-hints">Show tutorial hints</label>
       </div>
       <p class="setting-note" id="audio-note"></p>
     </div>

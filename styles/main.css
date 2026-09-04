@@ -15,7 +15,10 @@
 
   --steel-1: #2a3550;
   --steel-2: #3d4a6b;
-  --steel-3: #5a6a91;
+  /* steel-3 is the secondary-label tone used across almost every panel. At its
+     old #5a6a91 it sat at 3.7:1 on the void and 3.9:1 on --panel — under 4.5:1
+     everywhere it was actually used, on the smallest type in the game. */
+  --steel-3: #7585ae;
   --steel-4: #8494b8;
   --white: #e8f0ff;
   --dim: #7f8db0;
@@ -134,9 +137,12 @@ canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: bloc
    Title screen
    ========================================================================= */
 
-#screen-title { align-items: center; justify-content: center; }
+/* Centre the menu, but let it scroll rather than clip: at 480px tall the wrap
+   is taller than the viewport, and `justify-content: center` on a clipped flex
+   box eats the logo off the top and the version line off the bottom. */
+#screen-title { align-items: center; justify-content: safe center; overflow-y: auto; }
 
-.title-wrap { text-align: center; max-width: 460px; width: 100%; padding: 20px; }
+.title-wrap { text-align: center; max-width: 460px; width: 100%; padding: 20px; flex: none; }
 
 .game-title {
   margin: 0 0 6px;
@@ -193,7 +199,10 @@ canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: bloc
 }
 .btn:active:not(:disabled) { transform: translateY(1px); }
 .btn:focus-visible { outline: 2px solid var(--cyan-3); outline-offset: 2px; }
-.btn:disabled { opacity: .38; cursor: not-allowed; }
+/* Disabled buttons still carry information you need — the repair price you
+   cannot afford, the anomaly option you are short of credits for. At .38 the
+   label was invisible rather than merely inactive. */
+.btn:disabled { opacity: .52; cursor: not-allowed; }
 
 .btn-primary { color: var(--cyan-3); border-color: var(--cyan-1); }
 .btn-primary:hover:not(:disabled) {
@@ -316,9 +325,11 @@ input[type="checkbox"]:checked::after {
 }
 .ship-row:hover { background: rgba(255,255,255,.04); }
 .ship-row.selected { background: rgba(23,162,184,.13); border-color: var(--cyan-1); }
-/* A new profile has nine locked hulls; at .42 with a steel-3 name the whole
-   sidebar was effectively blank rather than merely greyed out. */
-.ship-row.locked { opacity: .7; cursor: not-allowed; }
+/* A new profile has nine locked hulls, so the locked state is the sidebar's
+   normal state, not an exception. Dim the art rather than the whole row: at
+   .7 the unlock conditions fell under 3.5:1 and could not be read. */
+.ship-row.locked { cursor: not-allowed; }
+.ship-row.locked canvas { opacity: .6; }
 .ship-row canvas { flex: none; }
 .ship-row .rname { font-size: 13px; color: var(--white); }
 .ship-row .rsub { font-size: 10.5px; color: var(--dim); letter-spacing: .05em; }
@@ -378,7 +389,10 @@ input[type="checkbox"]:checked::after {
    Achievements + stats
    ========================================================================= */
 
-.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 10px; }
+/* The screen builds a heading + a `.ach-row` grid per category. Making this a
+   grid too tiled the headings into their own columns beside the cards; it is
+   only ever a vertical stack of (heading, row) pairs. */
+.ach-grid { display: flex; flex-direction: column; }
 
 .ach {
   display: flex;
@@ -389,10 +403,13 @@ input[type="checkbox"]:checked::after {
   background: rgba(18,26,46,.55);
   align-items: flex-start;
 }
-.ach.earned { border-color: var(--cyan-1); background: rgba(23,162,184,.09); }
-/* Almost every card on this screen is locked; at .5 the whole page was
-   unreadable rather than merely de-emphasised. */
-.ach.locked { opacity: .74; }
+/* The screen marks earned cards `.got`; `.earned` is kept as an alias so the
+   highlight cannot silently stop applying again. */
+.ach.earned, .ach.got { border-color: var(--cyan-1); background: rgba(23,162,184,.09); }
+.ach.earned .ach-name, .ach.got .ach-name { color: var(--cyan-3); }
+/* Almost every card on this screen is locked, so locked is the readable
+   default; the icon carries the "not yours yet", not the text. */
+.ach.locked canvas { opacity: .5; }
 .ach canvas { flex: none; margin-top: 2px; }
 .ach .an { font-size: 12.5px; color: var(--white); letter-spacing: .04em; }
 .ach.earned .an { color: var(--cyan-3); }
@@ -500,7 +517,9 @@ input[type="checkbox"]:checked::after {
 .hull-readout b { color: var(--green-3); font-weight: 400; }
 .hull-readout.hurt b { color: var(--warn); }
 .hull-readout.critical b { color: var(--bad); animation: pulse 1s infinite; }
-@keyframes pulse { 50% { opacity: .45; } }
+/* The critical-hull readout is the one number you must not lose track of;
+   blink it, but never all the way down to unreadable. */
+@keyframes pulse { 50% { opacity: .68; } }
 
 /* =========================================================================
    Modals
@@ -561,6 +580,18 @@ input[type="checkbox"]:checked::after {
 /* Park the destructive action at the far end, away from the button people
    actually mean to press. */
 .modal-actions .btn-danger { order: -1; margin-right: auto; }
+/* Several dialogs (level-up, anomaly choices) pass no actions; without this
+   they end in a blank ruled strip that reads as a clipped panel. */
+.modal-actions:empty { display: none; }
+
+/* A section heading that opens a panel should not carry the 30px separator it
+   needs between sections. */
+.modal-body > .section-title:first-child,
+.modal-body > * > .section-title:first-child { margin-top: 0; }
+
+/* Run summary on the death and victory dialogs. Without this the rows stacked
+   flush against each other with doubled borders. */
+.summary-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin-top: 16px; }
 
 .modal-text { color: #c2cee8; margin: 0 0 18px; line-height: 1.6; max-width: 66ch; }
 .modal-text.flavour { font-style: italic; color: var(--steel-4); }
@@ -591,7 +622,7 @@ input[type="checkbox"]:checked::after {
   font-size: 13px;
   line-height: 1.45;
 }
-.choice:disabled { opacity: .42; }
+.choice:disabled { opacity: .55; }
 .choice .creq { display: block; font-size: 10.5px; color: var(--amber-3); margin-top: 4px; letter-spacing: .05em; }
 .choice:disabled .creq { color: var(--red-3); }
 
@@ -642,12 +673,18 @@ input[type="checkbox"]:checked::after {
   box-shadow: 0 12px 32px rgba(0,0,0,.6);
   animation: toast-in .34s cubic-bezier(.2,.9,.3,1) both;
 }
-.toast.leaving { animation: toast-out .3s ease forwards; }
-.toast .tt { font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--cyan-3); }
-.toast .tn { font-size: 13px; color: var(--white); }
-.toast .td { font-size: 10.5px; color: var(--dim); margin-top: 2px; }
+/* These match the markup the toast builder emits. The old `.tt/.tn/.td` and
+   `.leaving` names matched nothing, so every toast rendered as one run of
+   undifferentiated 14px body text and never animated out. */
+.toast.out, .toast.leaving { animation: toast-out .3s ease forwards; }
+.toast { flex-direction: column; align-items: stretch; gap: 0; max-width: min(320px, calc(100vw - 32px)); }
+.toast .toast-tag, .toast .tt { font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--cyan-3); }
+.toast .toast-name, .toast .tn { font-size: 13px; color: var(--white); line-height: 1.3; margin-top: 2px; }
+.toast .toast-desc, .toast .td { font-size: 10.5px; color: var(--dim); margin-top: 3px; line-height: 1.4; }
 .toast.unlock { border-color: var(--amber-1); border-left-color: var(--amber-3); }
-.toast.unlock .tt { color: var(--amber-3); }
+.toast.unlock .toast-tag, .toast.unlock .tt { color: var(--amber-3); }
+.toast.bad { border-color: var(--red-1); border-left-color: var(--red-3); }
+.toast.bad .toast-tag { color: var(--red-3); }
 @keyframes toast-in { from { opacity: 0; transform: translateX(38px); } }
 @keyframes toast-out { to { opacity: 0; transform: translateX(38px); } }
 
@@ -679,8 +716,13 @@ input[type="checkbox"]:checked::after {
 
 @media (max-width: 860px) {
   .hangar { grid-template-columns: 1fr; }
-  .ship-list { flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--line); }
-  .ship-row { flex: none; flex-direction: column; width: 108px; text-align: center; gap: 5px; }
+  /* The strip must not eat the detail pane: unlock conditions are long, and at
+     108px wide they wrapped to four lines and pushed the hull sheet off. */
+  .ship-list { flex-direction: row; overflow-x: auto; overflow-y: hidden; flex: none; border-right: none; border-bottom: 1px solid var(--line); }
+  .ship-row { flex: none; flex-direction: column; width: 132px; text-align: center; gap: 5px; }
+  .ship-row .rsub { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .ship-detail { padding: 16px 18px; }
+  .detail-hero { padding: 6px 0 2px; }
 
   /* The top bar cannot fit four resource chips, the sector name and the hull
      readout on one narrow line; let it wrap instead of pushing the hull
@@ -694,6 +736,17 @@ input[type="checkbox"]:checked::after {
   }
   .topbar-left { flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
   .topbar-mid { flex-direction: row; align-items: baseline; gap: 7px; }
+}
+
+/* A short landscape window (a 480px-tall laptop, a phone on its side) cannot
+   hold the full-size logo and seven menu rows. Shrink rather than scroll. */
+@media (max-height: 660px) {
+  .game-title { font-size: clamp(26px, 6vw, 42px); }
+  .tagline { margin-bottom: 16px; font-size: 11.5px; }
+  .menu { gap: 6px; }
+  .menu .btn { padding: 7px 18px; }
+  .btn-sub { margin-top: 1px; }
+  .version { margin-top: 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

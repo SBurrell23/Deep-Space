@@ -64,6 +64,9 @@ export function createWorld({ encounter, threat, ship, rng, seed = 0 }) {
       kills: 0, shotsFired: 0, shotsHit: 0, damageDealt: 0, damageTaken: 0,
       pickupsTaken: 0, creditsEarned: 0, xpEarned: 0, timeElapsed: 0,
       abilitiesUsed: 0, dashes: 0, perfectDodges: 0, terrainHits: 0,
+      // Spawned vs destroyed vs escaped: an enemy that flies off the field is
+      // not a kill, and a 'clear' that pays in full for zero kills is a lie.
+      spawned: 0, escaped: 0,
     },
   };
 
@@ -536,7 +539,8 @@ function makeEnemy(world, spec) {
     name: elite ? `Elite ${def.name}` : def.name,
     x: spec.x, y: spec.y,
     vx: 0, vy: 0,
-    r: Math.max(def.w, def.h) * 0.36,
+    drawScale: (elite || spec.def.isBoss) ? 2 : 1,
+    r: Math.max(def.w, def.h) * 0.36 * ((elite || spec.def.isBoss) ? 1.8 : 1),
     w: def.w, h: def.h,
     sprite: def.sprite,
     elite,
@@ -579,6 +583,7 @@ function makeEnemy(world, spec) {
     },
     dead: false,
   };
+  world.stats.spawned++;
   emit(world, { type: 'enemySpawn', x: e.x, y: e.y, cls: def.cls });
   return e;
 }
@@ -658,8 +663,11 @@ function updateEnemies(world, dt) {
     }
 
     // Cull once it has left the field on either side and isn't coming back.
-    if (e.x < -CULL) { e.dead = true; e.escaped = true; }
-    else if (e.x > world.w + CULL * 4) { e.dead = true; e.escaped = true; }
+    if (e.x < -CULL || e.x > world.w + CULL * 4) {
+      e.dead = true;
+      e.escaped = true;
+      world.stats.escaped++;
+    }
   }
 }
 

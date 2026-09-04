@@ -485,7 +485,7 @@ function drawEnemies(ctx, world, t) {
       ctx.restore();
     }
 
-    safeSprite(ctx, e.sprite, e.x, e.y, 1, {
+    safeSprite(ctx, e.sprite, e.x, e.y, e.drawScale || 1, {
       center: true,
       alpha,
       tint: e.hitFlash > 0.35 ? '#ffffff' : null,

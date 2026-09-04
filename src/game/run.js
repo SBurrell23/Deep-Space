@@ -220,12 +220,23 @@ function buildRewards(run, world) {
   const mult = enc.rewards || {};
   const threat = node?.threat ?? 1;
 
-  const baseXp = nodeXpValue(threat) * (mult.xpMult ?? 1);
+  // On objectives where killing IS the point, pay for what you actually
+  // destroyed. Enemies that fly off the far edge end the encounter but are not
+  // kills, and a fight that resolved with nothing dead was paying in full.
+  const killObjective = ['clear', 'boss', 'destroy'].includes(enc.objective?.kind ?? 'clear');
+  const spawned = world.stats.spawned || 0;
+  const destroyedFrac = !killObjective || spawned === 0
+    ? 1
+    : Math.max(0, Math.min(1, world.stats.kills / spawned));
+  // Never zero: surviving the encounter is worth something on its own.
+  const completion = 0.35 + 0.65 * destroyedFrac;
+
+  const baseXp = nodeXpValue(threat) * (mult.xpMult ?? 1) * completion;
   const killXp = world.stats.xpEarned * 0.10;
   const xp = Math.round(baseXp + killXp);
 
   const credits = Math.round(
-    (world.stats.creditsEarned + 12 + threat * 6) * (mult.creditsMult ?? 1)
+    (world.stats.creditsEarned + (12 + threat * 6) * completion) * (mult.creditsMult ?? 1)
       * (1 + (run.ship.stats.creditsPct || 0)));
 
   const crateCount = (mult.crates ?? 0) + (world.stats.crates || 0)
@@ -246,6 +257,9 @@ function buildRewards(run, world) {
     world,
     xp, credits, items,
     perfect,
+    destroyed: world.stats.kills,
+    escaped: world.stats.escaped || 0,
+    completion,
     accuracy: world.stats.shotsFired ? world.stats.shotsHit / world.stats.shotsFired : 0,
     time: world.stats.timeElapsed,
   };
