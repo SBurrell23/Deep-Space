@@ -387,6 +387,7 @@ export function drawWorld(canvas, world, fx, t) {
   drawObstacles(ctx, world, t);
   drawPickups(ctx, world, t);
   drawDrones(ctx, world);
+  drawMines(ctx, world, t);
   drawEnemies(ctx, world, t);
   drawPlayerBullets(ctx, world);
   drawEnemyBullets(ctx, world);
@@ -590,6 +591,25 @@ function drawDrones(ctx, world) {
   }
 }
 
+/** Player mines: dim until armed, then a slow warning blink. */
+function drawMines(ctx, world, t) {
+  for (const m of world.mines) {
+    if (m.dead) continue;
+    const armed = m.t >= m.arm;
+    const blink = armed ? 0.55 + 0.45 * Math.sin(t * 6 + m.x * 0.1) : 0.35;
+    safeSprite(ctx, 'eb_flak', m.x, m.y, 1, { center: true, alpha: blink });
+    if (!armed) continue;
+    ctx.save();
+    ctx.globalAlpha = 0.16 + 0.10 * Math.sin(t * 6 + m.x * 0.1);
+    ctx.strokeStyle = C.cyan;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.proximity, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 function drawEnemies(ctx, world, t) {
   for (const e of world.enemies) {
     if (e.dead) continue;
@@ -627,12 +647,6 @@ function drawEnemies(ctx, world, t) {
     });
 
     if (e.elite || e.isBoss) {
-      ctx.save();
-      ctx.globalAlpha = 0.85;
-      ctx.strokeStyle = C.amber;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(e.x - e.r - 4, e.y - e.r - 4, (e.r + 4) * 2, (e.r + 4) * 2);
-      ctx.restore();
       drawHealthBar(ctx, e);
     } else if (e.hull < e.maxHull) {
       drawHealthBar(ctx, e);
@@ -712,52 +726,32 @@ function drawPlayer(ctx, world, t) {
 }
 
 /**
- * The player's shield.
+ * The player's shield: a soft oval that breathes.
  *
- * A flat ring read as a debug circle. This is layered: a soft interior wash, a
- * hex-faceted rim that counter-rotates, and a breathing pulse whose speed and
- * brightness track how much screen is left — so the shield's health is legible
- * from the effect itself, not just the bar.
+ * Deliberately understated. A hard rim with facets and a sweeping arc drew the
+ * eye away from the bullets, which is the one thing the player must be looking
+ * at. This reads as presence rather than geometry — the pulse quickens a little
+ * as the screen thins, and that is the only signal it carries.
  */
 function drawShieldBubble(ctx, p, t) {
   const frac = Math.max(0, Math.min(1, p.shield / Math.max(1, p.maxShield)));
-  const rx = 42, ry = 32;
-  // Low shields breathe faster and harder: an urgency cue without a warning.
-  const pulse = 1 + 0.05 * Math.sin(t * (3 + (1 - frac) * 5));
+  const rx = 44, ry = 33;
+  const pulse = 1 + 0.028 * Math.sin(t * (2.2 + (1 - frac) * 2.6));
 
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.scale(pulse, pulse);
 
-  const g = ctx.createRadialGradient(0, 0, rx * 0.35, 0, 0, rx);
+  // A single soft falloff, brightest at the rim and fading to nothing inward,
+  // so the ship stays clearly visible through it.
+  const g = ctx.createRadialGradient(0, 0, rx * 0.42, 0, 0, rx);
   g.addColorStop(0, 'rgba(79,227,245,0)');
-  g.addColorStop(0.72, `rgba(23,162,184,${(0.10 + 0.13 * frac).toFixed(3)})`);
-  g.addColorStop(1, `rgba(79,227,245,${(0.20 + 0.26 * frac).toFixed(3)})`);
+  g.addColorStop(0.78, `rgba(23,162,184,${(0.055 + 0.075 * frac).toFixed(3)})`);
+  g.addColorStop(1, `rgba(79,227,245,${(0.10 + 0.16 * frac).toFixed(3)})`);
   ctx.fillStyle = g;
   ctx.beginPath();
   ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
   ctx.fill();
-
-  // Faceted rim — a slow counter-rotating hexagon reads as a field, not a line.
-  ctx.rotate(-t * 0.5);
-  ctx.strokeStyle = `rgba(79,227,245,${(0.30 + 0.45 * frac).toFixed(3)})`;
-  ctx.lineWidth = 1.6;
-  ctx.beginPath();
-  for (let i = 0; i <= 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
-    const x = Math.cos(a) * rx, y = Math.sin(a) * ry;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-  ctx.stroke();
-
-  // A brighter arc sweeping the rim, so the bubble never looks static.
-  const sweep = (t * 1.6) % (Math.PI * 2);
-  ctx.strokeStyle = `rgba(232,240,255,${(0.22 * frac).toFixed(3)})`;
-  ctx.lineWidth = 2.4;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, rx, ry, 0, sweep, sweep + 0.9);
-  ctx.stroke();
   ctx.restore();
 }
 

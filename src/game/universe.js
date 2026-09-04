@@ -207,8 +207,14 @@ function angleDelta(a, b) {
 /**
  * Reveal outward from a node. Nodes within `radius` jumps become `seen` unless
  * already visited. Returns how many were newly revealed.
+ *
+ * `opts.limit` caps how many nodes a single reveal may uncover. The web is
+ * dense enough that hop count alone is a terrible unit of generosity — at
+ * radius six a survey bonus was handing over most of the universe — so charted
+ * bonuses spend a node budget, breadth-first, and stop when it runs out.
  */
-export function revealFrom(map, nodeId, radius) {
+export function revealFrom(map, nodeId, radius, opts = {}) {
+  const limit = opts.limit ?? Infinity;
   let revealed = 0;
   const seen = new Set([nodeId]);
   let frontier = [nodeId];
@@ -221,7 +227,11 @@ export function revealFrom(map, nodeId, radius) {
         seen.add(l);
         next.push(l);
         const n = map.nodes[l];
-        if (n.state === NODE_STATE.UNKNOWN) { n.state = NODE_STATE.SEEN; revealed++; }
+        if (n.state === NODE_STATE.UNKNOWN) {
+          if (revealed >= limit) return revealed;
+          n.state = NODE_STATE.SEEN;
+          revealed++;
+        }
       }
     }
     frontier = next;
@@ -272,6 +282,37 @@ export function reachable(map) {
 
 export function canJumpTo(map, id) {
   return reachable(map).some(n => n.id === id);
+}
+
+/**
+ * Everywhere the player may move to in one action: adjacent nodes, plus
+ * anything on the far side of a corridor of already-cleared space. This is what
+ * the map highlights, so the yellow means "you can go there" rather than "this
+ * happens to touch you".
+ */
+export function travelable(map) {
+  const out = new Map();
+  const seen = new Set([map.currentId]);
+  const queue = [map.currentId];
+
+  while (queue.length) {
+    const at = queue.shift();
+    for (const next of map.nodes[at].links) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      const node = map.nodes[next];
+      if (node.state === NODE_STATE.UNKNOWN) continue;
+      out.set(next, node);
+      // Only cleared space may be crossed; an uncleared node is a destination.
+      if (node.cleared) queue.push(next);
+    }
+  }
+  out.delete(map.currentId);
+  return [...out.values()];
+}
+
+export function canTravelTo(map, id) {
+  return id !== map.currentId && travelable(map).some(n => n.id === id);
 }
 
 /**

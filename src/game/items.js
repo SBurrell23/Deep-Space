@@ -20,6 +20,8 @@ import { WEAPONS, weaponIds } from './weapons.js';
 export const SLOTS = [
   { id: 'primary', name: 'Primary Weapon', icon: 'icon_sys_weapons', kind: 'weapon' },
   { id: 'secondary', name: 'Secondary Weapon', icon: 'icon_missile', kind: 'weapon' },
+  // Cut into the hull at level 13; hidden before that.
+  { id: 'tertiary', name: 'Heavy Mount', icon: 'icon_sys_overdrive', kind: 'weapon', unlockLevel: 13 },
   { id: 'engine', name: 'Engine', icon: 'icon_sys_engines', kind: 'gear' },
   { id: 'shield', name: 'Shield Generator', icon: 'icon_sys_shields', kind: 'gear' },
   { id: 'reactor', name: 'Reactor Core', icon: 'icon_power', kind: 'gear' },
@@ -36,6 +38,11 @@ export const SLOTS_BY_ID = Object.fromEntries(SLOTS.map(s => [s.id, s]));
 export function poolForSlot(slotId) {
   if (slotId === 'utility1' || slotId === 'utility2') return 'utility';
   return slotId;
+}
+
+/** Slots available to a ship at this level. */
+export function slotsForLevel(level) {
+  return SLOTS.filter(s => !s.unlockLevel || level >= s.unlockLevel);
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +217,7 @@ export function generateItem(rng, { slot, level = 1, rarity = null, luck = 0, ra
   const pool = poolForSlot(slot || rng.pick(SLOT_IDS));
   const slotId = slot || (pool === 'utility' ? 'utility1' : pool);
 
-  if (pool === 'primary' || pool === 'secondary') {
+  if (pool === 'primary' || pool === 'secondary' || pool === 'tertiary') {
     return generateWeaponItem(rng, { slot: slotId, level, rarity, luck, rarityFloor });
   }
 
@@ -249,7 +256,7 @@ export function generateItem(rng, { slot, level = 1, rarity = null, luck = 0, ra
 
 /** Weapons are items too, but their identity is the weapon definition. */
 function generateWeaponItem(rng, { slot, level, rarity, luck, rarityFloor }) {
-  const kind = slot === 'secondary' ? 'secondary' : 'primary';
+  const kind = slot === 'tertiary' ? 'tertiary' : slot === 'secondary' ? 'secondary' : 'primary';
   const candidates = weaponIds().filter(id => WEAPONS[id].kind === kind);
   const def = WEAPONS[rng.pick(candidates)];
   const rar = rarity ? RARITY_BY_ID[rarity] : rollRarity(rng, { threat: level, luck, floor: rarityFloor });

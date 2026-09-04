@@ -80,8 +80,18 @@ CI runs the suite plus a six-run soak of complete games on every push, and gates
 
 ---
 
+## Versioning
+
+The version on the title screen is the release number. Bump it in `index.html` on every push — the minor for a batch of changes (`v2.0` → `v2.1`), the major for a change to what the game is. It is the only place the number lives.
+
+---
+
 ## Honest state
 
-The synthetic pilot beats the Master Fleet in roughly one run in six, with winning runs taking 25–40 minutes of combat and perhaps an hour of wall clock. A human explores more of the map than a bot that beelines for the rim the moment it hits level 18, so a real playthrough runs longer — but the two-hour figure is a design target, not a measured one.
+**The Master Fleet is currently out of reach.** Over eighteen headless runs at pilot skill 0.75 and 0.95 the bot won none: it reaches level 20 and ring 11 but averages 13–17 nodes before dying. The cause is compounding, not any single fight — the balance sweep puts per-encounter death between 12% and 25% from threat 8 upward, and a run needs on the order of thirty nodes to reach the rim. Surviving thirty nodes at 15% each is a four-percent proposition.
+
+Fixing it means one of three things, and they are design calls rather than tuning ones: cut the per-encounter death rate to about 5% (which makes every fight noticeably softer), shorten the route to the Master Fleet, or make death less than total. The numbers to argue with are in `tests/balance.js` and `tests/autoplay.js`.
+
+Winning runs, when the bot used to find them, took 25–40 minutes of combat and perhaps an hour of wall clock. A human explores more of the map than a bot that beelines for the rim, so a real playthrough runs longer — but the two-hour figure is a design target, not a measured one.
 
 The soundtrack is *New Planets*, supplied by the author of this repository.

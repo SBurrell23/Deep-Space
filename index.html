@@ -22,7 +22,6 @@
   <section class="screen" id="screen-title" data-screen="title">
     <div class="title-wrap">
       <h1 class="game-title"><span>DEEP</span><span class="accent">SPACE</span></h1>
-      <p class="tagline">Out past the last relay, the map stops and the fleet begins.</p>
       <nav class="menu" id="title-menu">
         <button class="btn btn-primary" data-action="continue" id="btn-continue" hidden>
           <span class="btn-label">Continue Run</span>
@@ -35,7 +34,7 @@
         <button class="btn" data-action="help">How To Play</button>
         <button class="btn" data-action="settings">Sound &amp; Settings</button>
       </nav>
-      <p class="version">v2.0 &middot; vanilla JavaScript &middot; no engine, no build step</p>
+      <p class="version">v2.1</p>
     </div>
   </section>
 
@@ -107,7 +106,7 @@
       <div class="topbar-right">
         <span class="hull-readout" id="hull-readout"></span>
         <span class="hull-bar" id="hull-bar"><span id="hull-fill"></span></span>
-        <button class="btn btn-ghost btn-icon" data-action="settings" title="Sound &amp; settings">&#9834;</button>
+        <button class="btn btn-ghost btn-icon" data-action="settings" title="Sound &amp; settings">&#9881;</button>
       </div>
     </header>
 
@@ -134,10 +133,13 @@
           <div class="bb-track"><span id="bb-fill"></span></div>
         </div>
         <div class="hud-bottom-left">
-          <div class="hud-weapons" id="hud-weapons"></div>
-          <div class="hud-dash" id="hud-dash"></div>
+          <!-- Abilities sit above the weapons: same corner, same glance. -->
+          <div class="hud-abilities" id="hud-abilities"></div>
+          <div class="hud-guns">
+            <div class="hud-weapons" id="hud-weapons"></div>
+            <div class="hud-dash" id="hud-dash"></div>
+          </div>
         </div>
-        <div class="hud-abilities" id="hud-abilities"></div>
         </div>
       </div>
 
@@ -211,6 +213,15 @@
       <div class="setting-row setting-check">
         <input type="checkbox" id="opt-autofire">
         <label for="opt-autofire">Hold-to-fire (uncheck for autofire)</label>
+      </div>
+      <div class="setting-row">
+        <label for="opt-cursor">Cursor</label>
+        <select id="opt-cursor" class="setting-select">
+          <option value="x">Targeting X</option>
+          <option value="highvis">High Vis</option>
+          <option value="ring">Ring Sight</option>
+          <option value="classic">System Crosshair</option>
+        </select>
       </div>
       <p class="setting-note" id="audio-note"></p>
     </div>

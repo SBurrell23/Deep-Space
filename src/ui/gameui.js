@@ -162,22 +162,25 @@ export function renderCombatHud() {
 
   // Weapons.
   const wrap = $('#hud-weapons');
-  if (wrap.dataset.built !== world.encounter.id) {
-    wrap.dataset.built = world.encounter.id;
+  const builtKey = `${world.encounter.id}:${p.tertiary ? 3 : S.hasSlot(r.ship, 'tertiary') ? 2.5 : 2}`;
+  if (wrap.dataset.built !== builtKey) {
+    wrap.dataset.built = builtKey;
     clear(wrap);
-    for (const [key, label] of [['primary', 'LMB'], ['secondary', 'RMB']]) {
+    for (const [key, label] of [['primary', 'LMB'], ['secondary', 'RMB'], ['tertiary', 'MMB']]) {
       const wep = p[key];
-      wrap.append(el(`div.wslot${wep ? '' : '.wslot-empty'}`, { dataset: { slot: key } },
+      // The heavy mount only appears once the hull actually has one.
+      if (key === 'tertiary' && !wep && !S.hasSlot(r.ship, 'tertiary')) continue;
+      wrap.append(el(`div.wslot${wep ? '' : '.wslot-empty'}${key === 'tertiary' ? '.wslot-heavy' : ''}`, { dataset: { slot: key } },
         el('span.wkey', { text: label }),
         el('span.wname', { text: wep ? wep.name : 'Empty' }),
         el('span.wcool')));
     }
   }
-  for (const [key] of [['primary'], ['secondary']]) {
+  for (const key of ['primary', 'secondary', 'tertiary']) {
     const node = wrap.querySelector(`[data-slot="${key}"]`);
     if (!node) continue;
     const wep = p[key];
-    const timer = key === 'primary' ? p.primaryTimer : p.secondaryTimer;
+    const timer = key === 'primary' ? p.primaryTimer : key === 'secondary' ? p.secondaryTimer : p.tertiaryTimer;
     const cool = node.querySelector('.wcool');
     if (wep && timer > 0) {
       cool.style.width = `${Math.min(1, timer / (1 / Math.max(0.05, wep.rof))) * 100}%`;
@@ -209,18 +212,28 @@ export function renderCombatHud() {
     node.querySelector('.acool').style.height = `${Math.min(1, a.timer / a.cooldown) * 100}%`;
   });
 
-  // Dash charges.
+  // Dash charges, with a recharge fill on the pip that is coming back.
   const dash = $('#hud-dash');
-  const want = `${p.dashCharges}/${p.dashMax}`;
-  if (dash.dataset.state !== want) {
-    dash.dataset.state = want;
+  if (dash.dataset.max !== String(p.dashMax)) {
+    dash.dataset.max = String(p.dashMax);
     clear(dash);
     dash.append(el('span.dlabel', { text: 'DASH' }));
     const pips = el('span.dpips');
     for (let i = 0; i < p.dashMax; i++) {
-      pips.append(el(`span.dpip${i < p.dashCharges ? '.on' : ''}`));
+      pips.append(el('span.dpip', { dataset: { i: String(i) } }, el('span.dfill')));
     }
     dash.append(pips);
+  }
+  const recharge = p.dashCharges < p.dashMax && p.stats.dashCooldown > 0
+    ? 1 - Math.min(1, p.dashCooldown / p.stats.dashCooldown)
+    : 0;
+  for (let i = 0; i < p.dashMax; i++) {
+    const pip = dash.querySelector(`[data-i="${i}"]`);
+    if (!pip) continue;
+    const full = i < p.dashCharges;
+    pip.classList.toggle('on', full);
+    pip.querySelector('.dfill').style.width =
+      full ? '100%' : (i === p.dashCharges ? `${recharge * 100}%` : '0%');
   }
 }
 
@@ -315,47 +328,16 @@ function attemptJump(node) {
   const route = adjacent ? null : U.routeThroughCleared(r.map, node.id);
   if (!adjacent && !route) { play('error'); return; }
 
-  const go = () => {
-    play('jump');
-    music.duck(0.4, 1.2);
-    ui.map.setPath([]);
-    if (adjacent) R.jump(r, node.id);
-    else R.travelPath(r, route);
-    ui.map.panTo(U.currentNode(r.map));
-    syncPhase(true);
-  };
-
-  // Crossing cleared space holds nothing and costs nothing; go straight there.
-  if (node.cleared) { go(); return; }
-
-  // Committing to an encounter is the decision the run is made of, so it is
-  // always confirmed — and always cancellable.
-  const lab = threatLabel(node.threat, r.ship.progress.level);
-  const risky = node.threat - r.ship.progress.level >= 4;
-  const peaceful = !ENCOUNTER_TYPES[node.type]?.action;
-
-  openModal({
-    title: node.encounterName || 'Jump',
-    body: el('div', null,
-      el('div.event-head', null,
-        el('div.event-scene', null, spriteEl(ENCOUNTER_TYPES[node.type]?.icon || 'node_unknown', 3)),
-        el('div', null,
-          el('p.modal-text.flavour', { text: node.blurb || '' }),
-          peaceful
-            ? el('p.modal-text', { text: 'Nothing here wants to fight you.' })
-            : el('p.modal-text', { html: `Threat <b style="color:${lab.colour}">${node.threat}</b> — ${lab.text} at your level.` }))),
-      route ? el('p.modal-text.route-note', {
-        text: `${route.length} jumps through space you have already cleared.`,
-      }) : null,
-      // Only warn where there is something to be warned about.
-      risky && !peaceful
-        ? el('p.warn-line', { text: 'This is well above your weight. Ships do not come back from these.' })
-        : null),
-    actions: [
-      { text: 'Cancel', kind: 'ghost', onClick: () => closeModal() },
-      { text: route ? 'Travel' : 'Jump', kind: 'primary', onClick: () => { closeModal(); go(); } },
-    ],
-  });
+  // One click, one move. The old flow asked you to confirm the jump and then
+  // confirm the encounter, so you warped somewhere before you could see what
+  // was there. Now the jump just happens and the brief carries the cancel.
+  play('jump');
+  music.duck(0.4, 1.2);
+  ui.map.setPath([]);
+  if (adjacent) R.jump(r, node.id);
+  else R.travelPath(r, route);
+  ui.map.panTo(U.currentNode(r.map));
+  syncPhase(true);
 }
 
 function renderNodeCard(node, path = null) {
@@ -504,6 +486,8 @@ function openBrief() {
         stat('Hull', `${Math.round(r.ship.hull)}/${r.ship.stats.maxHull}`),
         stat('Assessment', lab.text, lab.colour))),
     actions: [
+      // The last door out. Once you engage there is no disengaging.
+      { text: 'Cancel', kind: 'ghost', onClick: () => { closeModal(); play('cancel'); R.declineEncounter(r); syncPhase(true); } },
       { text: 'Ship', kind: 'ghost', onClick: () => openInventory() },
       { text: 'Engage', kind: 'primary', onClick: () => { closeModal(); play('confirm'); R.beginEncounter(r); syncPhase(true); } },
     ],
@@ -758,7 +742,7 @@ function openLevelUp() {
             if (r.ship.progress.unspentPoints > 0) build();
             else { closeModal(); syncPhase(true); }
           },
-        }, el('span', { text: capped ? 'Maxed' : 'Spend a point' })));
+        }, el('span', { text: capped ? 'Maxed' : 'Upgrade' })));
     });
 
     openModal({
@@ -820,49 +804,52 @@ export function openInventory() {
         el('h4.section-title', { text: 'Loadout' }),
         slots),
       el('div.inv-right', null,
+        // Identity and hull on one line: the ship, who it is, and how it is.
         el('div.inv-head', null,
           spriteEl(ship.sprite, 2),
-          el('div', null,
+          el('div.inv-ident', null,
             el('div.inv-name', { text: ship.name }),
             el('div.inv-lvl', null,
               el('span', { text: `Level ${ship.progress.level}` }),
-              el('span.inv-credits', null, spriteEl('icon_credits', 1), el('b', { text: String(ship.credits) }))))),
+              el('span.inv-credits', null, spriteEl('icon_credits', 1), el('b', { text: String(ship.credits) })))),
+          el('div.inv-hull', null,
+            el('div.ih-top', null,
+              spriteEl('icon_hull', 1),
+              el('span', { text: 'Hull' }),
+              el('b', { text: `${Math.round(ship.hull)} / ${s.maxHull}` })),
+            el('div.ih-track', null, el('span', {
+              style: { width: `${hfrac * 100}%` },
+              class: hfrac <= 0.25 ? 'critical' : hfrac <= 0.55 ? 'hurt' : '',
+            })))),
 
-        // Hull gets a bar as well as a number — it is the resource the whole
-        // run is played against.
-        el('div.inv-hull', null,
-          el('div.ih-top', null,
-            spriteEl('icon_hull', 1),
-            el('span', { text: 'Hull' }),
-            el('b', { text: `${Math.round(ship.hull)} / ${s.maxHull}` })),
-          el('div.ih-track', null, el('span', {
-            style: { width: `${hfrac * 100}%` },
-            class: hfrac <= 0.25 ? 'critical' : hfrac <= 0.55 ? 'hurt' : '',
-          }))),
-
-        el('h4.section-title', { text: 'Attributes' }),
-        el('div.attr-list', null, ...ATTRIBUTES.map(a => {
-          const v = ship.progress.attributes[a.id];
-          return el('div.attr-row', null,
-            spriteEl(a.icon, 1),
-            el('span.ar-name', { text: a.name }),
-            el('span.ar-track', null, el('span', {
-              style: { width: `${(v / ATTR_CAP) * 100}%`, background: a.accent },
+        // Attributes and systems side by side, so the hold is not pushed a
+        // screen and a half down the page.
+        el('div.inv-cols', null,
+          el('div', null,
+            el('h4.section-title', { text: 'Attributes' }),
+            el('div.attr-list', null, ...ATTRIBUTES.map(a => {
+              const v = ship.progress.attributes[a.id];
+              return el('div.attr-row', null,
+                spriteEl(a.icon, 1),
+                el('span.ar-name', { text: a.name }),
+                el('span.ar-track', null, el('span', {
+                  style: { width: `${(v / ATTR_CAP) * 100}%`, background: a.accent },
+                })),
+                el('b.ar-val', { text: String(v), style: { color: a.accent } }));
             })),
-            el('b.ar-val', { text: String(v), style: { color: a.accent } }));
-        })),
-        ship.progress.unspentPoints
-          ? el('button.btn.btn-small.btn-primary.inv-spend', {
-            onclick: () => openLevelUp(),
-          }, el('span', { text: `Spend ${ship.progress.unspentPoints} point${ship.progress.unspentPoints === 1 ? '' : 's'}` }))
-          : null,
+            ship.progress.unspentPoints
+              ? el('button.btn.btn-small.btn-primary.inv-spend', {
+                onclick: () => openLevelUp(),
+              }, el('span', { text: `Upgrade — ${ship.progress.unspentPoints} point${ship.progress.unspentPoints === 1 ? '' : 's'}` }))
+              : null),
+          el('div', null,
+            el('h4.section-title', { text: 'Systems' }),
+            el('div.stat-list', null, ...statRows.map(([icon, k, v]) =>
+              el('div.stat-line', null,
+                spriteEl(icon, 1),
+                el('span', { text: k }),
+                el('b', { text: v })))))),
 
-        el('h4.section-title', { text: 'Systems' }),
-        el('div.stat-list', null, ...statRows.map(([icon, k, v]) =>
-          el('div.stat-line', null,
-            spriteEl(icon, 1),
-            el('span', { text: k }),
-            el('b', { text: v })))),
         ship.perk ? el('div.perk-box', null,
           el('div.perk-name', { text: ship.perk.name }),
           el('div.perk-desc', { text: ship.perk.desc })) : null,
@@ -880,6 +867,7 @@ export function openInventory() {
                 build();
               },
               secondaryAction: 'Jettison',
+              secondaryKind: 'danger',
               onSecondary: () => { R.sellItem(r, item.uid); play('cancel'); build(); },
             })))
           : el('p.modal-text.flavour', { text: 'Nothing stowed.' })));
@@ -922,7 +910,7 @@ function itemCard(item, opts = {}) {
       disabled: !!opts.disabled,
       onclick: opts.onAction,
     }, el('span', { text: opts.action })),
-    opts.secondaryAction ? el('button.btn.btn-small.btn-ghost', {
+    opts.secondaryAction ? el(`button.btn.btn-small.btn-ghost${opts.secondaryKind === 'danger' ? '.btn-danger' : ''}`, {
       onclick: opts.onSecondary,
     }, el('span', { text: opts.secondaryAction })) : null) : null);
 }
@@ -1023,7 +1011,7 @@ export function frame(dt, t) {
     ui.map.update(dt);
     ui.map.draw(r.map, {
       level: r.ship.progress.level,
-      reachable: r.phase === 'map' ? U.reachable(r.map) : [],
+      reachable: r.phase === 'map' ? U.travelable(r.map) : [],
       showAllThreat: !!r.ship.stats.alwaysRevealThreat,
     });
     renderMapHud();

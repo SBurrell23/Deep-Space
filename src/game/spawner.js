@@ -17,11 +17,14 @@ import { ENEMIES, fillBudget, scaleEnemy } from './enemies.js';
  *
  * Kept deliberately low: every enemy fires, so damage in the air scales with
  * COUNT, not with toughness. Doubling the budget doubles the bullets and turns
- * a threat-1 skirmish into an undodgeable wall. Fight length comes from
- * ENEMIES.BASE_HULL instead. Encounters multiply
- * this by their own `budget` factor, so retuning difficulty globally is a
- * one-line change here rather than an edit to every encounter.
+ * a threat-1 skirmish into an undodgeable wall. Fight length comes from the
+ * per-class toughness in enemies.js instead. Encounters multiply this by their
+ * own `budget` factor, so retuning difficulty globally is a one-line change
+ * here rather than an edit to every encounter.
  */
+/** How long a capital ship waits behind its escort screen. */
+export const BOSS_ARRIVAL_DELAY = 7;
+
 export function standardBudget(threat) {
   return 45 + 0.4 * Math.max(0, threat - 1);
 }
@@ -137,10 +140,43 @@ export class Spawner {
     this.threat = threat;
     this.rng = rng;
     this.waves = (encounter.waves || []).map((w, i) => ({ ...w, index: i, fired: false }));
+    this.addBossArrival();
+    this.waves.forEach((w, i) => { w.index = i; });
     this.time = 0;
     /** Set once every wave has fired, so the sim knows "clear" is achievable. */
     this.exhausted = this.waves.length === 0;
     this.spawnedTotal = 0;
+  }
+
+  /**
+   * Give a capital ship an arrival.
+   *
+   * A boss that is simply present at t=0 has no entrance — you are fighting it
+   * before you have registered that it is there. Where a boss-tagged group
+   * would open the encounter alone, a screen of escorts goes in front of it and
+   * the capital ship follows a few seconds later, out of the same fight.
+   */
+  addBossArrival() {
+    const first = this.waves[0];
+    if (!first) return;
+    const bossGroups = (first.spawn || []).filter(g => g.tag === 'boss');
+    if (bossGroups.length === 0) return;
+    // Only when the boss IS the opening — an encounter that already leads with
+    // escorts is staged the way its author intended.
+    if (bossGroups.length !== (first.spawn || []).length) return;
+
+    for (const g of bossGroups) g.wait = Math.max(g.wait || 0, BOSS_ARRIVAL_DELAY);
+    this.waves.unshift({
+      at: 0,
+      fired: false,
+      synthetic: true,
+      spawn: [{
+        budget: 0.5,
+        pool: ['picket', 'wasp', 'interceptor', 'gunship', 'seeker'],
+        formation: 'v',
+        delay: 0.3,
+      }],
+    });
   }
 
   /** Advance the schedule, returning spawn requests to realise this frame. */

@@ -66,6 +66,8 @@ export function startRun({ shipId = 'kestrel', seed = null, profile = null } = {
       encountersWon: 0, encountersFled: 0, bossesKilled: 0, shotsFired: 0,
       shotsHit: 0, dashes: 0, abilitiesUsed: 0, deepestRing: 0, anomaliesResolved: 0,
       hullRepaired: 0, terrainHits: 0, perfectClears: 0,
+      rammed: 0, derelictsCleared: 0, everCritical: false, tradesMade: 0,
+      shopsVisited: 0, tunnelsCleared: 0, bossesMet: 0,
     },
   };
 
@@ -189,6 +191,20 @@ export function beginEncounter(run, encounterId = null) {
   return true;
 }
 
+/**
+ * Back out of the brief without engaging.
+ *
+ * You have arrived at the node and looked at what is waiting; you have not
+ * committed to it. The node stays uncleared and you are free to jump on.
+ * Once the fight starts there is no such door.
+ */
+export function declineEncounter(run) {
+  if (run.phase !== 'brief') return false;
+  run.encounter = null;
+  run.phase = maybeLevelUp(run, 'map');
+  return true;
+}
+
 /** Disengage. You keep nothing, and the node stays uncleared. */
 export function flee(run) {
   if (run.phase !== 'action' || !run.world) return false;
@@ -211,6 +227,11 @@ function concludeEncounter(run) {
   run.stats.dashes += world.stats.dashes;
   run.stats.abilitiesUsed += world.stats.abilitiesUsed;
   run.stats.terrainHits += world.stats.terrainHits;
+  run.stats.bossesKilled += world.stats.bossKills || 0;
+  run.stats.rammed = (run.stats.rammed || 0) + (world.stats.rammed || 0);
+  // "Never dropped below a quarter" has to be observed while it is happening;
+  // by the debrief the hull has already been patched.
+  if (run.ship.hull / run.ship.stats.maxHull <= 0.25) run.stats.everCritical = true;
 
   if (S.isDestroyed(run.ship)) {
     run.phase = 'dead';
@@ -315,6 +336,12 @@ export function collectRewards(run, { take = null } = {}) {
 
   U.markCleared(run.map, run.node.id);
   run.stats.nodesCleared++;
+  // Node-type tallies, for the achievements that care what you cleared and not
+  // just how many.
+  const kind = run.encounter?.type || run.node?.type;
+  if (kind === 'derelict') run.stats.derelictsCleared++;
+  if (kind === 'tunnel') run.stats.tunnelsCleared++;
+  if (kind === 'boss') run.stats.bossesMet++;
 
   // The Master Fleet is three encounters played back to back.
   if (run.encounter?.type === 'masterfleet') {
@@ -481,7 +508,11 @@ function applyEffects(run, fx) {
     out.attributePoint = fx.attributePoint;
   }
   if (fx.reveal) {
-    out.reveal = U.revealFrom(run.map, run.map.currentId, U.scanRadius(ship) + fx.reveal);
+    // A charted bonus buys nodes, not hops: `reveal: 4` used to blow the fog
+    // off half the universe from a ring-two anomaly.
+    out.reveal = U.revealFrom(run.map, run.map.currentId,
+      U.scanRadius(ship) + Math.min(3, fx.reveal),
+      { limit: 3 + fx.reveal * 4 });
   }
   if (fx.combat) out.combat = fx.combat;
 
@@ -523,6 +554,7 @@ export function buyItem(run, uid) {
   if (!S.addItem(run.ship, item)) return { ok: false, reason: 'inventory full' };
   run.ship.credits -= item.value;
   run.stats.creditsSpent += item.value;
+  run.stats.tradesMade++;
   stock.items = stock.items.filter(i => i.uid !== uid);
   return { ok: true, item };
 }

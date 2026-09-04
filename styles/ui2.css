@@ -7,6 +7,18 @@
    Each surface says what the mouse does there. The crosshair is the game's
    aim; the map uses a pointer only where a jump is actually possible. */
 body { cursor: default; }
+/* The aiming cursor is a real X drawn in SVG, and the player picks the ink.
+   `classic` falls back to the system crosshair for anyone who prefers it. */
+body[data-cursor="x"] .screen[data-screen="game"] #stage {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26'%3E%3Cg stroke-linecap='round'%3E%3Cpath d='M5 5l16 16M21 5L5 21' stroke='%23050710' stroke-width='4.6' opacity='.75'/%3E%3Cpath d='M5 5l16 16M21 5L5 21' stroke='%234fe3f5' stroke-width='2.2'/%3E%3C/g%3E%3C/svg%3E") 13 13, crosshair;
+}
+body[data-cursor="highvis"] .screen[data-screen="game"] #stage {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30'%3E%3Cg stroke-linecap='round'%3E%3Cpath d='M5 5l20 20M25 5L5 25' stroke='%23050710' stroke-width='6' opacity='.8'/%3E%3Cpath d='M5 5l20 20M25 5L5 25' stroke='%23ff35c8' stroke-width='3.4'/%3E%3C/g%3E%3C/svg%3E") 15 15, crosshair;
+}
+body[data-cursor="ring"] .screen[data-screen="game"] #stage {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Ccircle cx='14' cy='14' r='9' fill='none' stroke='%23050710' stroke-width='4' opacity='.75'/%3E%3Ccircle cx='14' cy='14' r='9' fill='none' stroke='%235cf59b' stroke-width='1.8'/%3E%3Ccircle cx='14' cy='14' r='1.6' fill='%235cf59b'/%3E%3C/svg%3E") 14 14, crosshair;
+}
+body[data-cursor="classic"] .screen[data-screen="game"] #stage { cursor: crosshair; }
 .screen[data-screen="game"] #stage { cursor: crosshair; }
 #mapcanvas { cursor: grab; }
 #mapcanvas:active { cursor: grabbing; }
@@ -98,8 +110,11 @@ body { cursor: default; }
    the far side of the screen it was unreadable mid-fight. */
 .hud-bottom-left {
   position: absolute; left: 14px; bottom: 12px;
-  display: flex; align-items: flex-end; gap: 14px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
 }
+.hud-guns { display: flex; align-items: flex-end; gap: 14px; }
+/* Abilities ride above the weapons in the same corner. */
+.hud-abilities { position: static; display: flex; gap: 8px; }
 .hud-dash { position: static; display: flex; flex-direction: column; gap: 4px; }
 .hud-dash .dlabel { font-size: 10px; letter-spacing: .14em; color: var(--steel-4); }
 .hud-dash .dpips { display: flex; gap: 4px; }
@@ -114,10 +129,31 @@ body { cursor: default; }
 }
 
 /* --- loadout screen ------------------------------------------------------- */
-.modal-wide { width: min(1120px, 96vw); }
+/* The loadout is the biggest screen in the game: give it the width, and pin
+   it to the top of the viewport so it does not float down the page. */
+.modal-wide { width: min(1320px, 96vw); }
+/* Pin the loadout to the top of the viewport so it does not float down. */
+.modal-wide:has(.inv-wrap) { align-self: start; max-height: calc(100vh - 40px); }
+.modal-wide:has(.inv-wrap) .modal-body { padding-top: 12px; }
+/* Level-up wants three cards across, not the loadout's full span. */
+.modal-wide:has(.attr-grid) { width: min(1040px, 96vw); }
+/* Six attributes, always three across and two down. */
+.attr-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.attr-card { min-width: 0; }
 .inv-wrap { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 22px; }
 
-.inv-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.inv-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.inv-ident { flex: none; }
+/* Hull sits beside the hull it describes rather than under it. */
+.inv-head .inv-hull { flex: 1; min-width: 160px; margin: 0; }
+/* Attributes and systems share a row so the hold stays near the fold. */
+.inv-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 22px; align-items: start; }
+.inv-cols > div { min-width: 0; }
+.inv-cols .section-title { margin-top: 0; }
+@media (max-width: 900px) {
+  .inv-cols { grid-template-columns: minmax(0, 1fr); }
+  .inv-head { flex-wrap: wrap; }
+}
 .inv-name { font-size: 15px; color: var(--cyan-3); letter-spacing: .05em; }
 .inv-lvl { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--steel-4); margin-top: 3px; }
 .inv-credits { display: inline-flex; align-items: center; gap: 4px; }
@@ -175,3 +211,65 @@ body { cursor: default; }
 /* --- How To Play: a centred column, not a full-bleed wall of text --------- */
 #screen-help .scroll-pane { display: flex; justify-content: center; }
 #screen-help .help-body { width: min(760px, 100%); padding: 0 8px; }
+
+/* --- pointer affordances ------------------------------------------------- */
+.ship-button { cursor: pointer; }
+.setting-select {
+  background: var(--steel-1); color: var(--white);
+  border: 1px solid var(--line); border-radius: 3px;
+  padding: 5px 8px; font: inherit; font-size: 12px; cursor: pointer;
+}
+
+/* --- Records: a centred column, not a full-bleed ledger ------------------- */
+#screen-stats .scroll-pane > * {
+  width: min(900px, 100%);
+  margin-left: auto; margin-right: auto;
+}
+#screen-stats .scroll-pane { padding-left: 32px; padding-right: 32px; }
+
+/* --- Achievements read better centred too -------------------------------- */
+#screen-achievements .scroll-pane > * {
+  width: min(1100px, 100%);
+  margin-left: auto; margin-right: auto;
+}
+
+/* --- Hangar: the detail pane is a column, not a billboard ----------------- */
+.ship-detail > * { max-width: 700px; }
+.ship-detail { padding-left: 36px; padding-right: 36px; }
+
+/* --- title: bigger, and with some light behind it -------------------------
+   The name is the only art on the screen, so it carries a gradient fill, a
+   cyan bloom and a slow breathing glow rather than sitting flat. */
+.game-title {
+  /* Scale on the shorter axis too: on a wide, short window a pure vw title
+     shoved the menu off the bottom. */
+  font-size: clamp(42px, min(12vw, 15vh), 128px);
+  letter-spacing: .12em;
+  line-height: .86;
+  margin-bottom: clamp(14px, 3vh, 30px);
+  position: relative;
+}
+.game-title span {
+  background: linear-gradient(180deg, #ffffff 4%, #b7c8e6 46%, #5b6b90 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  filter: drop-shadow(0 0 26px rgba(79, 227, 245, .22)) drop-shadow(0 4px 0 rgba(0, 0, 0, .5));
+  text-shadow: none;
+}
+.game-title .accent {
+  background: linear-gradient(180deg, #d8fbff 2%, var(--cyan-3) 40%, #0f7f92 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  filter: drop-shadow(0 0 34px rgba(79, 227, 245, .55)) drop-shadow(0 4px 0 rgba(0, 0, 0, .5));
+  animation: title-breathe 5.5s ease-in-out infinite;
+}
+@keyframes title-breathe {
+  0%, 100% { filter: drop-shadow(0 0 30px rgba(79, 227, 245, .42)) drop-shadow(0 4px 0 rgba(0, 0, 0, .5)); }
+  50% { filter: drop-shadow(0 0 54px rgba(79, 227, 245, .78)) drop-shadow(0 4px 0 rgba(0, 0, 0, .5)); }
+}
+@media (prefers-reduced-motion: reduce) { .game-title .accent { animation: none; } }
+.version { margin-top: 26px; letter-spacing: .18em; }
+
+@media (max-width: 720px) {
+  .game-title { font-size: clamp(40px, 12vw, 64px); margin-bottom: 18px; }
+}

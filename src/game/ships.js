@@ -108,7 +108,7 @@ export const SHIPS = {
     attributes: { hull: 4, shields: 2, weapons: 2, reactor: 3, thrusters: 3, systems: 4 },
     gear: { primary: 'ricochet', secondary: 'cluster', computer: 'salvage_ai' },
     perk: { id: 'scavenger', name: 'Scavenger', desc: 'Loot rolls one rarity tier higher, and crates drop twice as often.' },
-    unlock: { kind: 'achievement', id: 'rich', desc: 'Earn "War Profiteer".' },
+    unlock: { kind: 'achievement', id: 'magpie_haul', desc: 'Earn "Nine Hulls In A Trenchcoat" — find 60 items and earn 12,000 credits in one run.' },
   },
 };
 

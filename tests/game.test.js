@@ -109,7 +109,7 @@ describe('items', () => {
   it('covers every slot with at least one base template', () => {
     for (const slot of SLOT_IDS) {
       const pool = slot.startsWith('utility') ? 'utility' : slot;
-      if (pool === 'primary' || pool === 'secondary') continue;
+      if (pool === 'primary' || pool === 'secondary' || pool === 'tertiary') continue;
       assert.ok(BASES[pool]?.length > 0, `no bases for ${pool}`);
     }
   });

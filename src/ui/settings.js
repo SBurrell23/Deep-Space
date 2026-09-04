@@ -36,6 +36,15 @@ export function initSettings(gameProfile, saveFn) {
   bindGameOption('#opt-rotate', 'rotateShip');
   bindGameOption('#opt-autofire', 'autofireDefault');
 
+  const cursor = $('#opt-cursor');
+  if (cursor) cursor.addEventListener('change', () => {
+    if (!profile) return;
+    profile.settings.cursor = cursor.value;
+    applyCursor(profile.settings.cursor);
+    if (onProfileChange) onProfileChange();
+    play('toggle');
+  });
+
   root.addEventListener('click', e => {
     const action = e.target.closest('[data-action]')?.dataset.action;
     if (action === 'settings-dismiss') closeSettings();
@@ -91,7 +100,7 @@ export function refresh() {
   // Defaults matter here: a checkbox that renders false while the behaviour is
   // true means the control does nothing until you toggle it twice.
   const OPTIONS = [
-    ['#opt-rotate', 'rotateShip', false],
+    ['#opt-rotate', 'rotateShip', true],
     ['#opt-autofire', 'autofireDefault', true],
   ];
   for (const [sel, key, dflt] of OPTIONS) {
@@ -99,18 +108,34 @@ export function refresh() {
     if (input && profile) input.checked = profile.settings[key] ?? dflt;
   }
 
+  const cursor = $('#opt-cursor');
+  if (cursor && profile) {
+    cursor.value = profile.settings.cursor || DEFAULT_CURSOR;
+    applyCursor(cursor.value);
+  }
+
+  // The note only earns its space when something is actually wrong.
   const note = $('#audio-note');
   if (!note) return;
   if (music.isBlocked()) {
     note.textContent = 'Your browser blocked audio until you interact with the page. Click anywhere to start the soundtrack.';
     note.className = 'setting-note warn';
   } else if (!bus.isUnlocked()) {
-    note.textContent = 'Audio starts on your first click. All sound effects are generated in JavaScript — no audio files.';
+    note.textContent = 'Audio starts on your first click.';
     note.className = 'setting-note';
   } else {
-    note.textContent = 'Every sound effect is synthesised live with the Web Audio API. Settings are saved to this browser.';
+    note.textContent = '';
     note.className = 'setting-note';
   }
+}
+
+export const CURSORS = ['x', 'highvis', 'ring', 'classic'];
+export const DEFAULT_CURSOR = 'x';
+
+/** Cursor choice is a body attribute; the CSS owns the actual artwork. */
+export function applyCursor(name) {
+  const value = CURSORS.includes(name) ? name : DEFAULT_CURSOR;
+  document.body.dataset.cursor = value;
 }
 
 export function openSettings() {

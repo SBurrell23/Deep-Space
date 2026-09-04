@@ -8,7 +8,7 @@
  */
 
 import { deriveStats, newProgress, grantXp, spendPoint, ATTRIBUTE_IDS } from './attributes.js';
-import { SLOT_IDS, sumMods, equippedAbilities, generateItem, BASES, RARITY_BY_ID, powerScore } from './items.js';
+import { SLOT_IDS, slotsForLevel, sumMods, equippedAbilities, generateItem, BASES, RARITY_BY_ID, powerScore } from './items.js';
 import { WEAPONS } from './weapons.js';
 import { SHIPS } from './ships.js';
 
@@ -140,6 +140,13 @@ export function hasUnspentPoints(ship) { return ship.progress.unspentPoints > 0;
 // Inventory
 // ---------------------------------------------------------------------------
 
+/** Slot ids this ship can currently use. */
+export function availableSlots(ship) {
+  return slotsForLevel(ship.progress.level).map(s => s.id);
+}
+
+export function hasSlot(ship, slotId) { return availableSlots(ship).includes(slotId); }
+
 export function inventoryFull(ship) { return ship.inventory.length >= INVENTORY_SIZE; }
 
 export function addItem(ship, item) {
@@ -165,6 +172,7 @@ export function equip(ship, uid, slotId = null) {
 
   const slot = slotId || defaultSlotFor(ship, item);
   if (!slot || !SLOT_IDS.includes(slot)) return { ok: false, reason: 'no slot' };
+  if (!hasSlot(ship, slot)) return { ok: false, reason: 'that mount unlocks at level 13' };
   if (!fitsSlot(item, slot)) return { ok: false, reason: `${item.name} does not fit that slot` };
 
   const displaced = ship.equipped[slot];
@@ -193,12 +201,13 @@ export function fitsSlot(item, slotId) {
   if (item.pool === 'utility') return slotId === 'utility1' || slotId === 'utility2';
   if (item.pool === 'primary') return slotId === 'primary';
   if (item.pool === 'secondary') return slotId === 'secondary';
+  if (item.pool === 'tertiary') return slotId === 'tertiary';
   return item.pool === slotId;
 }
 
 /** Prefer an empty compatible slot, else the one it would replace. */
 export function defaultSlotFor(ship, item) {
-  const candidates = SLOT_IDS.filter(s => fitsSlot(item, s));
+  const candidates = availableSlots(ship).filter(s => fitsSlot(item, s));
   const empty = candidates.find(s => !ship.equipped[s]);
   return empty || candidates[0] || null;
 }
@@ -255,9 +264,11 @@ export function hullFraction(ship) { return ship.hull / ship.stats.maxHull; }
 export function rollLoot(ship, rng, { threat, crates = 1, rarityFloor = 1 }) {
   const items = [];
   const floor = Math.min(5, rarityFloor + (ship.stats.rarityFloorBonus || 0));
+  // Heavy-mount weapons are pointless salvage until the mount exists.
+  const slots = availableSlots(ship);
   for (let i = 0; i < crates; i++) {
     items.push(generateItem(rng, {
-      slot: rng.pick(SLOT_IDS),
+      slot: rng.pick(slots),
       level: threat,
       luck: ship.stats.luck || 0,
       rarityFloor: floor,

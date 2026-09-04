@@ -13,7 +13,8 @@
 import { NODE_STATE } from '../game/universe.js';
 import { ENCOUNTER_TYPES } from '../game/encounters/index.js';
 import { safeSprite, C } from './render.js';
-import { cosmetic } from '../core/rng.js';
+import PLANET_ART from './art-planets.js';
+import { RNG } from '../core/rng.js';
 
 /** Pixels per ring unit at zoom 1. */
 const UNIT = 74;
@@ -118,6 +119,8 @@ export class MapView {
     const reach = new Set(reachable.map(n => n.id));
 
     ctx.clearRect(0, 0, w, h);
+    this.drawPlanets(ctx, map, w, h);
+    this.drawNebulae(ctx, map, w, h);
     this.drawFog(ctx, w, h);
 
     // Ring guides, so "further out is worse" is legible at a glance. They are
@@ -145,6 +148,132 @@ export class MapView {
     for (const n of visible) this.drawNode(ctx, map, n, { level, reach, showAllThreat });
 
     if (map.masterFleetVisible) this.drawMasterFleetPointer(ctx, map, w, h);
+  }
+
+  /**
+   * Coloured gas out past the edge of what you have charted.
+   *
+   * The unexplored map used to be flat black, which read as "nothing here"
+   * rather than "you have not been there". Blobs are seeded from the map so
+   * they hold still between frames and between sessions, and each fades out as
+   * the player's frontier reaches its ring — the dark you have walked into
+   * stops being mysterious.
+   */
+  nebulaeFor(map) {
+    if (this._nebulaMap === map) return this._nebulae;
+    const rng = new RNG(`${map.seed}:nebula`);
+    const TINTS = [
+      [92, 40, 150], [22, 86, 132], [130, 44, 96],
+      [40, 96, 88], [120, 70, 30], [58, 48, 140],
+    ];
+    const out = [];
+    for (let i = 0; i < 26; i++) {
+      const ring = map.rings * (0.3 + rng.next() * 0.95);
+      const angle = rng.next() * Math.PI * 2;
+      const tint = TINTS[Math.floor(rng.next() * TINTS.length)];
+      out.push({
+        x: Math.cos(angle) * ring,
+        y: Math.sin(angle) * ring,
+        ring,
+        radius: (1.1 + rng.next() * 2.4) * UNIT,
+        tint,
+        alpha: 0.2 + rng.next() * 0.26,
+      });
+    }
+    this._nebulaMap = map;
+    this._nebulae = out;
+    return out;
+  }
+
+  /** How far out the player has charted, in rings. */
+  frontierRing(map) {
+    let far = 0;
+    for (const n of map.nodes) {
+      if (n.state !== NODE_STATE.UNKNOWN && n.ring > far) far = n.ring;
+    }
+    return far;
+  }
+
+  drawNebulae(ctx, map, w, h) {
+    const frontier = this.frontierRing(map);
+    const z = this.cam.zoom;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const b of this.nebulaeFor(map)) {
+      // Fully lit two rings beyond the frontier, gone one ring inside it.
+      const fade = Math.max(0, Math.min(1, (b.ring - frontier + 1) / 2.5));
+      if (fade <= 0.02) continue;
+      const p = this.project(b);
+      const rad = b.radius * z;
+      if (p.x < -rad || p.x > w + rad || p.y < -rad || p.y > h + rad) continue;
+
+      const a = b.alpha * fade;
+      const [cr, cg, cb] = b.tint;
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad);
+      g.addColorStop(0, `rgba(${cr},${cg},${cb},${a.toFixed(3)})`);
+      g.addColorStop(0.55, `rgba(${cr},${cg},${cb},${(a * 0.42).toFixed(3)})`);
+      g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Background worlds.
+   *
+   * Scattered on a coarse jittered grid — one cell every eight ring units —
+   * so panning turns one up every so often rather than a wall of them, and
+   * drawn at a fraction of the camera's motion so they sit visibly far behind
+   * the web. Dim on purpose: this is depth, not decoration to read.
+   */
+  planetsFor(map) {
+    if (this._planetMap === map) return this._planets;
+    const rng = new RNG(`${map.seed}:planets`);
+    const names = Object.keys(PLANET_ART);
+    const span = Math.ceil(map.rings * 1.3);
+    // One candidate cell every four ring units, a third of them taken: about a
+    // planet per screen at default zoom, which is the "one or two at a time"
+    // the background wants.
+    const CELL = 4;
+    const out = [];
+
+    for (let gx = -span; gx <= span; gx += CELL) {
+      for (let gy = -span; gy <= span; gy += CELL) {
+        if (rng.next() > 0.32) continue;
+        out.push({
+          x: gx + (rng.next() - 0.5) * CELL * 0.85,
+          y: gy + (rng.next() - 0.5) * CELL * 0.85,
+          name: names[Math.floor(rng.next() * names.length)],
+          scale: 3 + Math.floor(rng.next() * 3),   // 3-5x on a 64px sprite
+          alpha: 0.26 + rng.next() * 0.22,
+          depth: 0.16 + rng.next() * 0.14,         // fraction of camera motion
+        });
+      }
+    }
+    this._planetMap = map;
+    this._planets = out;
+    return out;
+  }
+
+  drawPlanets(ctx, map, w, h) {
+    if (!PLANET_ART) return;
+    const z = this.cam.zoom;
+    ctx.save();
+    for (const pl of this.planetsFor(map)) {
+      // Parallax: the further back it is, the less the camera moves it.
+      const x = w / 2 + (pl.x * UNIT - this.cam.x * pl.depth) * z;
+      const y = h / 2 + (pl.y * UNIT - this.cam.y * pl.depth) * z;
+      const rad = 64 * pl.scale * z * 0.5;
+      if (x < -rad || x > w + rad || y < -rad || y > h + rad) continue;
+      safeSprite(ctx, pl.name, x, y, Math.max(1, Math.round(pl.scale * z)), {
+        center: true,
+        alpha: pl.alpha,
+      });
+    }
+    ctx.restore();
   }
 
   /** A vignette that reads as "you cannot see out there". */
@@ -264,17 +393,19 @@ export class MapView {
       const delta = n.threat - level;
       const colour = delta <= -3 ? C.dim : delta <= 1 ? C.green
         : delta <= 3 ? C.amber : C.red;
-      const bx = p.x + r * 0.78, by = p.y - r * 0.78;
+      const bx = p.x + r * 0.8, by = p.y - r * 0.8;
       ctx.save();
-      ctx.fillStyle = 'rgba(5,7,15,0.92)';
+      // Solid, not translucent: the threat number is read against whatever
+      // happens to be behind it, and a see-through disc made it mush.
+      ctx.fillStyle = '#05070f';
       ctx.beginPath();
-      ctx.arc(bx, by, 9 * Math.max(0.8, z), 0, Math.PI * 2);
+      ctx.arc(bx, by, 7.4 * Math.max(0.85, z), 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = colour;
       ctx.lineWidth = 1.3;
       ctx.stroke();
       ctx.fillStyle = colour;
-      ctx.font = `bold ${Math.round(10 * Math.max(0.85, z))}px ui-monospace, monospace`;
+      ctx.font = `bold ${Math.round(9 * Math.max(0.9, z))}px ui-monospace, monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(String(n.threat), bx, by + 0.5);

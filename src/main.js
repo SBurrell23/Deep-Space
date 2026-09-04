@@ -36,7 +36,7 @@ const state = {
 };
 
 const keys = new Set();
-const mouse = { x: 0, y: 0, left: false, right: false, inStage: false };
+const mouse = { x: 0, y: 0, left: false, right: false, middle: false, inStage: false };
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -159,7 +159,7 @@ function startRun(shipId = STARTER_SHIP, seed = null) {
   save.saveProfile(state.profile);
 
   state.run = R.startRun({ shipId, seed, profile: state.profile });
-  state.run.ship.rotate = !!state.profile.settings.rotateShip;
+  state.run.ship.rotate = state.profile.settings.rotateShip !== false;
   state.profile.lastShip = shipId;
 
   gameui.ui.lastPhase = null;
@@ -176,7 +176,7 @@ function continueRun() {
   if (!data) return;
   try {
     state.run = R.deserialize(data, state.profile);
-    state.run.ship.rotate = !!state.profile.settings.rotateShip;
+    state.run.ship.rotate = state.profile.settings.rotateShip !== false;
   } catch {
     // A save from an incompatible build should not brick the title screen.
     save.clearRun();
@@ -227,6 +227,7 @@ function releaseInput() {
   keys.clear();
   mouse.left = false;
   mouse.right = false;
+  mouse.middle = false;
 }
 
 function bindGlobalInput() {
@@ -245,7 +246,7 @@ function bindGlobalInput() {
     if (screens.isModalOpen()) return;
 
     if (screens.currentScreen() === 'game' && state.run) {
-      if (e.code === 'KeyI') { e.preventDefault(); gameui.openInventory(); }
+      if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); gameui.openInventory(); }
       if (e.code === 'KeyM' && state.run.phase === 'map') gameui.ui.map.panTo(U.currentNode(state.run.map));
       if (e.code === 'Space') e.preventDefault();   // never scroll the page
     }
@@ -254,23 +255,34 @@ function bindGlobalInput() {
   window.addEventListener('keyup', e => keys.delete(e.code));
   window.addEventListener('blur', () => { keys.clear(); mouse.left = mouse.right = false; });
 
-  stage.addEventListener('pointermove', e => {
+  /**
+   * Read every held button from the event's `buttons` bitmask rather than
+   * tracking down/up per button.
+   *
+   * Tracking them individually loses state whenever an event is swallowed — a
+   * context menu, a pointer capture, a release outside the window — and the
+   * failure looks exactly like the bug reported: hold two triggers and only one
+   * fires, depending which went down first. The bitmask is the browser's own
+   * authoritative answer and is correct on every event.
+   */
+  const readButtons = (e) => {
+    mouse.left = (e.buttons & 1) !== 0;
+    mouse.right = (e.buttons & 2) !== 0;
+    mouse.middle = (e.buttons & 4) !== 0;
+  };
+  const readPosition = (e) => {
     const world = state.run?.world;
     const w = render.screenToWorld(stage, e.clientX, e.clientY, world?.w, world?.h);
     mouse.x = w.x; mouse.y = w.y;
-    mouse.inStage = true;
-  });
-  stage.addEventListener('pointerdown', e => {
-    if (e.button === 0) mouse.left = true;
-    if (e.button === 2) mouse.right = true;
-    const world = state.run?.world;
-    const w = render.screenToWorld(stage, e.clientX, e.clientY, world?.w, world?.h);
-    mouse.x = w.x; mouse.y = w.y;
-  });
-  window.addEventListener('pointerup', e => {
-    if (e.button === 0) mouse.left = false;
-    if (e.button === 2) mouse.right = false;
-  });
+  };
+
+  stage.addEventListener('pointermove', e => { readButtons(e); readPosition(e); mouse.inStage = true; });
+  stage.addEventListener('pointerdown', e => { readButtons(e); readPosition(e); });
+  window.addEventListener('pointerup', readButtons);
+  window.addEventListener('pointercancel', readButtons);
+  // Middle-click scrolls by default, which fights the tertiary trigger.
+  stage.addEventListener('auxclick', e => e.preventDefault());
+  stage.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });
   // Suppress the context menu anywhere in the game screen: the right mouse
   // button is a weapon trigger, and the menu steals the pointerup that would
   // otherwise release it.
@@ -297,6 +309,7 @@ function applyInput(world) {
   const holdToFire = state.profile.settings.autofireDefault !== false;
   inp.firePrimary = holdToFire ? mouse.left : true;
   inp.fireSecondary = mouse.right;
+  inp.fireTertiary = mouse.middle;
 
   inp.dash = down('Space') || down('ShiftLeft') || down('ShiftRight');
   inp.abilities[0] = down('Digit1') || down('KeyQ');
@@ -335,7 +348,7 @@ function frame(dt) {
   render.drawBackdrop($('#backdrop'), state.time, mood);
 
   if (screen !== 'game' || !r) return;
-  r.ship.rotate = !!state.profile.settings.rotateShip;
+  r.ship.rotate = state.profile.settings.rotateShip !== false;
 
   if (r.phase === 'action' && r.world) {
     applyInput(r.world);

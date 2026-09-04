@@ -55,6 +55,7 @@ export function createWorld({ encounter, threat, ship, rng, seed = 0, width = WO
     // you position around rather than projectiles you dodge.
     zones: [],
     beams: [],
+    mines: [],
     pendingSpawns: [],
 
     input: blankInput(),
@@ -74,7 +75,10 @@ export function createWorld({ encounter, threat, ship, rng, seed = 0, width = WO
       abilitiesUsed: 0, dashes: 0, perfectDodges: 0, terrainHits: 0,
       // Spawned vs destroyed vs escaped: an enemy that flies off the field is
       // not a kill, and a 'clear' that pays in full for zero kills is a lie.
-      spawned: 0, escaped: 0,
+      spawned: 0, escaped: 0, rammed: 0, bossKills: 0,
+      // Per-slot trigger pulls, so "clear this without your secondary" can
+      // actually be checked.
+      primaryShots: 0, secondaryShots: 0, tertiaryShots: 0,
     },
   };
 
@@ -88,13 +92,16 @@ export function createWorld({ encounter, threat, ship, rng, seed = 0, width = WO
     const T = encounter.terrain;
     world.corridor = new Corridor(rng, WORLD_H, T.length ?? 12000, {
       style: T.style,
-      minAperture: Math.max(104, (T.minAperture ?? 200) * 0.70),
-      maxAperture: (T.maxAperture ?? 400) * 0.82,
-      roughness: (T.roughness ?? 1) * 1.35,
+      minAperture: Math.max(92, (T.minAperture ?? 200) * 0.62),
+      maxAperture: (T.maxAperture ?? 400) * 0.76,
+      roughness: (T.roughness ?? 1) * 1.55,
       chambers: T.chambers,
-      pinches: Math.round((T.pinches ?? 4) * 1.5),
+      pinches: Math.round((T.pinches ?? 4) * 1.8),
     });
-    world.scrollSpeed = (T.scroll ?? 200) * 1.5;
+    // Speed is what makes a passage a test rather than a corridor to steer
+    // down at leisure, so it scales with the node's threat on top of the flat
+    // multiplier.
+    world.scrollSpeed = (T.scroll ?? 200) * (2.05 + Math.min(12, threat) * 0.055);
   }
 
   if (encounter.obstacles) {
@@ -108,7 +115,7 @@ export function blankInput() {
   return {
     moveX: 0, moveY: 0,
     aimX: WORLD_W, aimY: WORLD_H / 2,
-    firePrimary: false, fireSecondary: false,
+    firePrimary: false, fireSecondary: false, fireTertiary: false,
     dash: false, abilities: [false, false],
   };
 }
@@ -136,13 +143,15 @@ function createPlayer(ship) {
     // pilot's stats once, here, rather than on every trigger pull.
     primary: ship.equipped?.primary ? resolveWeapon(ship.equipped.primary, s) : null,
     secondary: ship.equipped?.secondary ? resolveWeapon(ship.equipped.secondary, s) : null,
+    tertiary: ship.equipped?.tertiary ? resolveWeapon(ship.equipped.tertiary, s) : null,
     primaryTimer: 0,
     secondaryTimer: 0,
+    tertiaryTimer: 0,
     // Per-slot, not shared. Both triggers are meant to work at the same time,
     // and a single `charging`/`beamTick` meant holding both made one slot
     // cancel the other's charge or steal its tick.
-    charging: { primary: 0, secondary: 0 },
-    beamTick: { primary: 0, secondary: 0 },
+    charging: { primary: 0, secondary: 0, tertiary: 0 },
+    beamTick: { primary: 0, secondary: 0, tertiary: 0 },
 
     // 0 = locked facing right. With rotate mode on, the hull turns to the
     // cursor; the ship still moves on world axes, only its heading changes.
@@ -195,6 +204,7 @@ export function update(world, rawDt) {
   updateBullets(world, dt);
   updateObstacles(world, dt);
   updatePickups(world, dt);
+  updateMines(world, dt);
   updateZones(world, dt);
   updateBeams(world, dt);
   updateEffects(world, dt);
@@ -325,6 +335,7 @@ function updatePlayer(world, dt) {
   // --- weapons ---
   p.primaryTimer = Math.max(0, p.primaryTimer - dt);
   p.secondaryTimer = Math.max(0, p.secondaryTimer - dt);
+  p.tertiaryTimer = Math.max(0, p.tertiaryTimer - dt);
   fireWeapons(world, dt);
 
   // --- abilities ---
@@ -342,11 +353,14 @@ function fireWeapons(world, dt) {
   const inp = world.input;
   const aim = Math.atan2(inp.aimY - p.y, inp.aimX - p.x);
 
-  for (const which of ['primary', 'secondary']) {
+  const HELD = { primary: 'firePrimary', secondary: 'fireSecondary', tertiary: 'fireTertiary' };
+  const TIMER = { primary: 'primaryTimer', secondary: 'secondaryTimer', tertiary: 'tertiaryTimer' };
+  for (const which of ['tertiary', 'secondary', 'primary']) {
     const wep = p[which];
     if (!wep) continue;
-    const held = which === 'primary' ? inp.firePrimary : inp.fireSecondary;
-    const timerKey = which === 'primary' ? 'primaryTimer' : 'secondaryTimer';
+    const held = inp[HELD[which]];
+    const timerKey = TIMER[which];
+    const countShot = () => { world.stats[`${which}Shots`]++; };
 
     if (wep.behaviour === 'beam') {
       if (held && p.energy > 0) {
@@ -355,6 +369,7 @@ function fireWeapons(world, dt) {
         p.beamTick[which] -= dt;
         if (p.beamTick[which] <= 0) {
           p.beamTick[which] = 1 / (wep.tickRate || 10);
+          countShot();
           fireBeam(world, wep, aim);
         }
       } else {
@@ -371,6 +386,7 @@ function fireWeapons(world, dt) {
           p.charging[which] = Math.min(wep.chargeTime, p.charging[which] + dt);
         }
       } else if (p.charging[which] > 0) {
+        countShot();
         releaseCharge(world, wep, aim, p.charging[which] / wep.chargeTime);
         p.charging[which] = 0;
         p[timerKey] = shotInterval(wep);
@@ -381,14 +397,67 @@ function fireWeapons(world, dt) {
     if (!held || p[timerKey] > 0) continue;
     const cost = wep.energy;
     if (p.energy < cost) {
+      // No lockout. Punishing a starved trigger with a cooldown meant the
+      // cheap primary won every energy race and the expensive slots could
+      // never fire at all while both were held.
       emit(world, { type: 'dryFire' });
-      p[timerKey] = 0.25;
       continue;
     }
     p.energy -= cost;
     p[timerKey] = shotInterval(wep) / (p.fireRateBuff || 1);
-    fireShot(world, wep, aim);
+    countShot();
+
+    if (wep.behaviour === 'drone') launchDrones(world, wep);
+    else if (wep.behaviour === 'mine') layMine(world, wep, aim);
+    else fireShot(world, wep, aim);
   }
+}
+
+/**
+ * Deploy escort drones.
+ *
+ * This behaviour had no implementation: a drone weapon fell through to the
+ * bullet path and fired three drone-shaped projectiles that flew off the
+ * screen, which is why the Drone Swarm did nothing.
+ */
+function launchDrones(world, wep) {
+  const p = world.player;
+  const life = (wep.droneLife ?? 14) * (1 + (p.stats.droneLifePct || 0));
+  for (let i = 0; i < (wep.count || 1); i++) {
+    world.drones.push({
+      x: p.x - 30, y: p.y - 30 + i * 22, vx: 0, vy: 0, r: 8,
+      life,
+      fireTimer: i * 0.15,
+      fireInterval: 1 / Math.max(0.2, (wep.droneRof ?? 2) * (1 + (p.stats.droneRofPct || 0))),
+      damage: wep.droneDamage ?? wep.damage,
+      speed: wep.droneSpeed ?? 620,
+      sprite: 'drone_combat',
+      dead: false,
+    });
+  }
+  emit(world, { type: 'fire', sound: wep.sound, x: p.x, y: p.y });
+  emit(world, { type: 'launch', x: p.x, y: p.y });
+}
+
+/**
+ * Drop a proximity mine behind the ship. Player mines previously spawned as
+ * slow bullets that nothing ever triggered.
+ */
+function layMine(world, wep, aim) {
+  const p = world.player;
+  world.mines.push({
+    x: p.x - 26, y: p.y,
+    vx: wep.drift ?? -60, vy: 0,
+    r: 8,
+    damage: wep.damage,
+    radius: wep.radius ?? 96,
+    proximity: wep.proximity ?? 62,
+    arm: 0.35,
+    life: wep.life ?? 12,
+    t: 0,
+    dead: false,
+  });
+  emit(world, { type: 'fire', sound: wep.sound, x: p.x, y: p.y });
 }
 
 function fireShot(world, wep, aim) {
@@ -931,7 +1000,10 @@ function updateDrones(world, dt) {
     if (d.life <= 0) { d.dead = true; emit(world, { type: 'droneExpire', x: d.x, y: d.y }); continue; }
 
     // Loose formation on the player's wing.
-    const tx = p.x - 34, ty = p.y - 34;
+    d.slot = d.slot ?? (world.drones.indexOf(d) % 4);
+    const ring = (world.time * 0.8 + d.slot * (Math.PI / 2));
+    const tx = p.x - 30 + Math.cos(ring) * 26;
+    const ty = p.y + Math.sin(ring) * 30;
     d.vx += (tx - d.x) * 5 * dt;
     d.vy += (ty - d.y) * 5 * dt;
     d.vx *= 0.9; d.vy *= 0.9;
@@ -942,8 +1014,9 @@ function updateDrones(world, dt) {
     if (d.fireTimer <= 0 && target) {
       d.fireTimer = d.fireInterval || 0.45;
       const a = Math.atan2(target.y - d.y, target.x - d.x);
+      const ds = d.speed || 640;
       world.bullets.push({
-        x: d.x, y: d.y, vx: Math.cos(a) * 640, vy: Math.sin(a) * 640, angle: a,
+        x: d.x, y: d.y, vx: Math.cos(a) * ds, vy: Math.sin(a) * ds, angle: a,
         r: 5, damage: d.damage, life: 1.4, sprite: 'pb_pulse', scale: 1,
         behaviour: 'bullet', pierce: 0, hits: 0, radius: 0, splashMult: 0, dead: false,
       });
@@ -1027,6 +1100,30 @@ export function dropPickup(world, x, y, kind, amount, opts = {}) {
  * Persistent area denial. A zone is space you cannot occupy rather than a
  * projectile you dodge, which forces repositioning instead of reflexes.
  */
+/** Player-laid proximity mines: they arm, they wait, they detonate. */
+function updateMines(world, dt) {
+  for (const m of world.mines) {
+    if (m.dead) continue;
+    m.t += dt;
+    m.life -= dt;
+    if (m.life <= 0) { m.dead = true; continue; }
+
+    m.x += m.vx * dt;
+    m.y += m.vy * dt;
+    m.vx *= 0.985;
+    if (m.x < -CULL) { m.dead = true; continue; }
+    if (m.t < m.arm) continue;
+
+    for (const e of world.enemies) {
+      if (e.dead || (e.cloak && e.cloak.hidden)) continue;
+      if (dist2(e.x, e.y, m.x, m.y) > m.proximity * m.proximity) continue;
+      explode(world, m.x, m.y, { radius: m.radius, damage: m.damage, friendly: true });
+      m.dead = true;
+      break;
+    }
+  }
+}
+
 function updateZones(world, dt) {
   const p = world.player;
   for (const z of world.zones) {
@@ -1178,8 +1275,8 @@ function resolveCollisions(world, dt) {
     const reduce = 1 - clamp(p.stats.contactArmour || 0, 0, 0.85);
     damagePlayer(world, e.contact * reduce, { source: 'contact' });
     // Ramming hulls turn a collision into an attack rather than a mistake.
-    if (p.stats.ramDamage) damageEnemy(world, e, p.stats.ramDamage, { silent: true });
-    if (p.stats.thorns) damageEnemy(world, e, p.stats.thorns, { silent: true });
+    if (p.stats.ramDamage) damageEnemy(world, e, p.stats.ramDamage, { silent: true, ram: true });
+    if (p.stats.thorns) damageEnemy(world, e, p.stats.thorns, { silent: true, ram: true });
   }
 
   for (const o of world.obstacles) {
@@ -1187,7 +1284,12 @@ function resolveCollisions(world, dt) {
     const rr = o.size * 0.45 + p.r;
     if (dist2(o.x, o.y, p.x, p.y) > rr * rr) continue;
     const reduce = 1 - clamp(p.stats.contactArmour || 0, 0, 0.85);
-    damagePlayer(world, o.contact * reduce, { source: 'obstacle' });
+    // Rocks were authored as flat damage, so a belt that could kill a starting
+    // hull was free by ring ten. Scale with the node's threat, then cap any one
+    // impact at a slice of the hull so an early field cannot cascade into a
+    // death from full.
+    const rock = Math.min(o.contact * (1 + world.threat * 0.075), p.maxHull * 0.09);
+    damagePlayer(world, rock * reduce, { source: 'obstacle' });
     o.dead = true;
     emit(world, { type: 'explode', x: o.x, y: o.y, size: o.size });
   }
@@ -1281,14 +1383,18 @@ export function damageEnemy(world, e, amount, opts = {}) {
   }
   world.stats.damageDealt += amount;
 
-  if (e.hull <= 0) killEnemy(world, e);
+  if (e.hull <= 0) killEnemy(world, e, opts);
   return amount;
 }
 
-function killEnemy(world, e) {
+function killEnemy(world, e, opts = {}) {
   if (e.dead) return;
   e.dead = true;
   world.stats.kills++;
+  // A collision kill is its own achievement track, and capital kills are worth
+  // counting separately from the swarm around them.
+  if (opts.ram) world.stats.rammed++;
+  if (e.isBoss) world.stats.bossKills++;
 
   // Hull perks that pay out on a kill. Both are rate-limited the same way
   // lifesteal is, so a swarm encounter cannot become free healing.
@@ -1411,13 +1517,15 @@ function checkObjective(world) {
     case 'reach':
       if (world.scrollX >= (obj.distance ?? (world.corridor?.pixelLength ?? 8000) - world.w)) win(world);
       break;
+    // Killing the target ENDS the fight. Requiring the whole script to be
+    // exhausted meant a boss that died before a later timed wave fired left you
+    // mopping up escorts over its wreckage, and if no wave ever fired the
+    // encounter could not be won at all.
     case 'boss':
-      if (world.spawner.exhausted && !world.enemies.some(e => e.isBoss || e.tag === 'boss')
-          && world.pendingSpawns.length === 0) win(world);
+      if (targetResolved(world, e => e.isBoss || e.tag === 'boss', 'boss')) win(world);
       break;
     case 'destroy':
-      if (world.spawner.exhausted && !world.enemies.some(e => e.tag === obj.tag)
-          && world.pendingSpawns.length === 0) win(world);
+      if (targetResolved(world, e => e.tag === obj.tag, obj.tag)) win(world);
       break;
     default:
       if (world.spawner.isComplete(world)) win(world);
@@ -1428,6 +1536,22 @@ function checkObjective(world) {
     world.state = 'lost';
     world.outcome = 'timeout';
   }
+}
+
+/**
+ * Has the tagged target been dealt with?
+ *
+ * True once its wave has fired, nothing matching is alive, and nothing matching
+ * is still queued to arrive. Deliberately independent of the rest of the
+ * script: the objective is the target, not the crowd around it.
+ */
+function targetResolved(world, match, tag) {
+  const fired = world.spawner.waves.some(w =>
+    w.fired && (w.spawn || []).some(g => g.tag === tag));
+  if (!fired) return false;
+  if (world.enemies.some(e => !e.dead && match(e))) return false;
+  if (world.pendingSpawns.some(s => s.tag === tag)) return false;
+  return true;
 }
 
 function win(world) {
@@ -1449,7 +1573,7 @@ export function retreat(world) {
 // ---------------------------------------------------------------------------
 
 function compact(world) {
-  for (const key of ['enemies', 'bullets', 'eBullets', 'obstacles', 'pickups', 'drones', 'decoys', 'effects', 'zones', 'beams']) {
+  for (const key of ['enemies', 'bullets', 'eBullets', 'obstacles', 'pickups', 'drones', 'decoys', 'effects', 'zones', 'beams', 'mines']) {
     const arr = world[key];
     if (arr.some(x => x.dead)) world[key] = arr.filter(x => !x.dead);
   }
