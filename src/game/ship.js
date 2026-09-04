@@ -8,7 +8,7 @@
  */
 
 import { deriveStats, newProgress, grantXp, spendPoint, ATTRIBUTE_IDS } from './attributes.js';
-import { SLOT_IDS, slotsForLevel, sumMods, equippedAbilities, generateItem, BASES, RARITY_BY_ID, powerScore } from './items.js';
+import { SLOT_IDS, UTILITY_SLOTS, slotsForLevel, sumMods, equippedAbilities, generateItem, BASES, RARITY_BY_ID, powerScore, poolForSlot } from './items.js';
 import { WEAPONS } from './weapons.js';
 import { SHIPS } from './ships.js';
 
@@ -63,7 +63,7 @@ function makeStartingItem(rng, slot, baseId) {
       ability: null, value: 40, starting: true,
     };
   }
-  const pool = slot === 'utility1' || slot === 'utility2' ? 'utility' : slot;
+  const pool = poolForSlot(slot);
   const base = (BASES[pool] || []).find(b => b.id === baseId);
   if (!base) return null;
   const mods = {};
@@ -198,7 +198,7 @@ export function unequip(ship, slotId) {
 }
 
 export function fitsSlot(item, slotId) {
-  if (item.pool === 'utility') return slotId === 'utility1' || slotId === 'utility2';
+  if (item.pool === 'utility') return UTILITY_SLOTS.includes(slotId);
   if (item.pool === 'primary') return slotId === 'primary';
   if (item.pool === 'secondary') return slotId === 'secondary';
   if (item.pool === 'tertiary') return slotId === 'tertiary';

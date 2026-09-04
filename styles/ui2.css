@@ -141,8 +141,13 @@ body[data-cursor="classic"] .screen[data-screen="game"] #stage { cursor: crossha
 .sb-name { font-size: 12px; letter-spacing: .06em; color: var(--cyan-3); }
 .sb-sub { font-size: 10px; color: var(--steel-4); }
 .ship-button.attention .sb-sub { color: var(--amber-3); }
-/* The node card sits under the ship button rather than fighting it. */
-.node-card { top: 100px; }
+/* The node card is anchored beside its node from JS, so the corner pin goes.
+   It must not take the pointer either: parked next to the cursor it would
+   steal the hover it exists to describe. */
+.node-card {
+  right: auto; top: 0; left: 0;
+  pointer-events: none;
+}
 
 /* --- combat HUD: weapons and dash --------------------------------------
    Grouped bottom-left: the dash is used with the weapons, and at 12x5px on
@@ -170,10 +175,14 @@ body[data-cursor="classic"] .screen[data-screen="game"] #stage { cursor: crossha
 /* --- loadout screen ------------------------------------------------------- */
 /* The loadout is the biggest screen in the game: give it the width, and pin
    it to the top of the viewport so it does not float down the page. */
-.modal-wide { width: min(1320px, 96vw); }
-/* Pin the loadout to the top of the viewport so it does not float down. */
-.modal-wide:has(.inv-wrap) { align-self: start; max-height: calc(100vh - 40px); }
-.modal-wide:has(.inv-wrap) .modal-body { padding-top: 12px; }
+.modal-wide { width: min(1480px, 97vw); }
+/* Pin the loadout to the top of the viewport so it does not float down, and
+   spend as little height as possible on chrome — every pixel above the fold is
+   a slot the player can see without scrolling. */
+.modal-wide:has(.inv-wrap) { align-self: start; max-height: calc(100vh - 28px); }
+.modal-wide:has(.inv-wrap) .modal-title { padding: 11px 22px 9px; }
+.modal-wide:has(.inv-wrap) .modal-body { padding-top: 4px; }
+.inv-wrap .section-title:first-child { margin-top: 0; }
 /* Level-up wants three cards across, not the loadout's full span. */
 .modal-wide:has(.attr-grid) { width: min(1040px, 96vw); }
 /* Six attributes, always three across and two down. */
@@ -321,15 +330,23 @@ body[data-cursor="classic"] .screen[data-screen="game"] #stage { cursor: crossha
   .game-title { font-size: clamp(40px, 12vw, 64px); margin-bottom: 18px; }
 }
 
-/* --- loadout: the guns read against each other ---------------------------- */
-.slot-guns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.slot-guns > .slot { min-width: 0; }
+/* --- loadout: slots read against each other, two to a row ------------------
+   Grid rows stretch, but the card inside each slot has to be told to fill the
+   row it was given or a short card leaves its taller neighbour hanging. */
+.slot-guns,
+.slot-pairs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.slot-pairs { margin-top: 8px; }
+.slot-guns > .slot,
+.slot-pairs > .slot { min-width: 0; }
+.slot-guns > .slot > :last-child,
+.slot-pairs > .slot > :last-child { flex: 1; }
 /* The heavy mount is one weapon, not a pair: it takes the whole row. */
 .slot-guns > .slot:nth-child(3) { grid-column: 1 / -1; }
 .slot-locked { opacity: .55; }
 .slot-locked .slot-hollow { font-style: italic; }
 .inv-left { container: invleft / inline-size; }
 @container invleft (max-width: 420px) {
-  .slot-guns { grid-template-columns: 1fr; }
+  .slot-guns,
+  .slot-pairs { grid-template-columns: 1fr; }
   .slot-guns > .slot:nth-child(3) { grid-column: auto; }
 }

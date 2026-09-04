@@ -17,26 +17,35 @@ import { WEAPONS, weaponIds } from './weapons.js';
 // Slots
 // ---------------------------------------------------------------------------
 
+/**
+ * Declaration order is the order the loadout screen reads in, and the screen
+ * pairs them off two to a row: hull beside shield, engine beside reactor, and
+ * so on. Reordering this list rearranges that screen.
+ */
 export const SLOTS = [
   { id: 'primary', name: 'Primary Weapon', icon: 'icon_sys_weapons', kind: 'weapon' },
   { id: 'secondary', name: 'Secondary Weapon', icon: 'icon_missile', kind: 'weapon' },
-  // Cut into the hull at level 13; hidden before that.
+  // Cut into the hull at level 13; locked before that.
   { id: 'tertiary', name: 'Heavy Mount', icon: 'icon_sys_overdrive', kind: 'weapon', unlockLevel: 13 },
-  { id: 'engine', name: 'Engine', icon: 'icon_sys_engines', kind: 'gear' },
-  { id: 'shield', name: 'Shield Generator', icon: 'icon_sys_shields', kind: 'gear' },
-  { id: 'reactor', name: 'Reactor Core', icon: 'icon_power', kind: 'gear' },
   { id: 'plating', name: 'Hull Plating', icon: 'icon_hull', kind: 'gear' },
+  { id: 'shield', name: 'Shield Generator', icon: 'icon_sys_shields', kind: 'gear' },
+  { id: 'engine', name: 'Engine', icon: 'icon_sys_engines', kind: 'gear' },
+  { id: 'reactor', name: 'Reactor Core', icon: 'icon_power', kind: 'gear' },
   { id: 'computer', name: 'Nav Computer', icon: 'icon_sys_sensors', kind: 'gear' },
   { id: 'utility1', name: 'Utility I', icon: 'icon_sys_battery', kind: 'utility' },
   { id: 'utility2', name: 'Utility II', icon: 'icon_sys_battery', kind: 'utility' },
+  { id: 'utility3', name: 'Utility III', icon: 'icon_sys_battery', kind: 'utility' },
 ];
+
+/** Every utility mount, in trigger order. */
+export const UTILITY_SLOTS = SLOTS.filter(s => s.kind === 'utility').map(s => s.id);
 
 export const SLOT_IDS = SLOTS.map(s => s.id);
 export const SLOTS_BY_ID = Object.fromEntries(SLOTS.map(s => [s.id, s]));
 
-/** Which base-template pool feeds a slot. Both utility slots share one pool. */
+/** Which base-template pool feeds a slot. Every utility mount shares one pool. */
 export function poolForSlot(slotId) {
-  if (slotId === 'utility1' || slotId === 'utility2') return 'utility';
+  if (UTILITY_SLOTS.includes(slotId)) return 'utility';
   return slotId;
 }
 

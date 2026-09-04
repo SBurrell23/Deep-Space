@@ -18,6 +18,8 @@ import * as S from '../src/game/ship.js';
 import * as U from '../src/game/universe.js';
 import { SHIPS, SHIP_IDS, unlockedShips, STARTER_SHIP } from '../src/game/ships.js';
 import { ACHIEVEMENTS } from '../src/game/achievements.js';
+import { candidatesFor } from '../src/game/encounters/index.js';
+import { createWorld } from '../src/game/sim.js';
 
 describe('attributes', () => {
   it('defines six attributes with distinct ids', () => {
@@ -127,6 +129,32 @@ describe('items', () => {
         assert.ok(Number.isFinite(v), `${item.name}.${k} is ${v}`);
       }
     }
+  });
+
+  it('carries every utility mount through to the fight', () => {
+    // Three mounts, three ability keys. The sim used to cap at two, so a
+    // third utility equipped fine and then did nothing.
+    const rng = new RNG('UTIL3');
+    const ship = S.createShip('kestrel', rng);
+    const slots = SLOT_IDS.filter(id => id.startsWith('utility'));
+    assert.equal(slots.length, 3, 'expected three utility mounts');
+
+    for (const slot of slots) {
+      for (let i = 0; i < 80 && !ship.equipped[slot]; i++) {
+        const item = generateItem(rng, { slot, level: 8 });
+        if (!item.ability) continue;
+        ship.inventory.push(item);
+        S.equip(ship, item.uid, slot);
+      }
+      assert.ok(ship.equipped[slot], `nothing would equip into ${slot}`);
+    }
+    S.recompute(ship);
+    assert.equal(ship.abilities.length, 3);
+
+    const enc = candidatesFor(3, 'combat')[0];
+    const world = createWorld({ encounter: enc, threat: 3, ship, rng: rng.fork('w') });
+    assert.equal(world.player.abilities.length, 3,
+      'every equipped ability has to reach the cockpit');
   });
 
   it('gives every item a unique id', () => {

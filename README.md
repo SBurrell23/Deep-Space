@@ -16,7 +16,7 @@ Die and the run is gone for good.
 
 **Fight.** Encounters are played as a 2D side-scrolling shooter. You move with WASD, aim with the mouse and shoot with the buttons; enemies come from the right. Firing draws on your energy, dashing gives you invulnerability frames, and your shield regenerates between fights while your hull does not.
 
-**Get stronger.** Everything you clear gives experience. Each level grants two points across six attributes, and gear fills nine slots — two weapons, engine, shield, reactor, plating, nav computer and two utility slots that grant active abilities.
+**Get stronger.** Everything you clear gives experience. Each level grants two points across six attributes, and gear fills eleven mounts — two weapons plus a heavy mount cut in at level 13, engine, shield, reactor, plating, nav computer, and three utility slots that grant active abilities.
 
 **Nodes pay out once.** Going back over old ground gets you nothing, so the run only moves one way: outward.
 

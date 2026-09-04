@@ -48,7 +48,7 @@ function referenceShip(threat, rng, shipId = 'kestrel') {
   if (threat > 2) {
     // Utility slots included: without them the reference ship fights with no
     // abilities at all, which is not a build any real run arrives at.
-    for (const slot of ['primary', 'secondary', 'engine', 'shield', 'reactor', 'plating', 'computer', 'utility1', 'utility2']) {
+    for (const slot of ['primary', 'secondary', 'engine', 'shield', 'reactor', 'plating', 'computer', 'utility1', 'utility2', 'utility3']) {
       const item = generateItem(rng, { slot, level: Math.max(1, threat - 1) });
       ship.inventory.push(item);
       if (S.isUpgrade(ship, item)) S.equip(ship, item.uid);

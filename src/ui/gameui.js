@@ -368,7 +368,35 @@ function renderNodeCard(node, path = null) {
       el('span', { text: lab.text, style: { color: lab.colour } })),
     known && !node.cleared && node.blurb ? el('p.nc-blurb', { text: node.blurb }) : null,
     el('div.nc-foot', { text: route }));
+
+  placeNodeCard(card, node);
 }
+
+/**
+ * Park the hover card next to the node it describes.
+ *
+ * It used to live pinned in the top-right corner, which meant reading about one
+ * node while looking at another. It sits to the right of the node where there
+ * is room and flips to the left where there is not, and is clamped inside the
+ * play area so a node at the edge does not push it off screen.
+ */
+function placeNodeCard(card, node) {
+  const hud = $('#map-hud');
+  const box = hud.getBoundingClientRect();
+  if (!box.width) return;
+
+  const p = ui.map.project(node);
+  const w = card.offsetWidth || 250;
+  const h = card.offsetHeight || 130;
+  const reach = 22 * ui.map.cam.zoom + 14;   // clear of the node's own disc
+
+  let x = p.x + reach;
+  if (x + w > box.width - 10) x = p.x - reach - w;
+  card.style.left = `${Math.round(clampTo(x, 10, box.width - w - 10))}px`;
+  card.style.top = `${Math.round(clampTo(p.y - h / 2, 10, box.height - h - 10))}px`;
+}
+
+function clampTo(v, lo, hi) { return v < lo ? lo : v > hi ? hi : Math.max(lo, v); }
 
 export function renderMapHud() {
   const r = run();
@@ -384,6 +412,11 @@ export function renderMapHud() {
       item('#5a6a91', 'Picked clean'),
       item('#ff5c72', 'Master Fleet'));
   }
+
+  // The camera keeps moving under a card that is already up — zoom, a pan, the
+  // glide after a jump — so the card is re-anchored every frame it is visible.
+  const card = $('#node-card');
+  if (!card.hidden && ui.hoverNode) placeNodeCard(card, ui.hoverNode);
 }
 
 // ---------------------------------------------------------------------------
@@ -496,7 +529,6 @@ function openBrief() {
         ui.map.panTo(U.currentNode(r.map));
         syncPhase(true);
       } },
-      { text: 'Ship', kind: 'ghost', onClick: () => openInventory() },
       { text: 'Engage', kind: 'primary', onClick: () => { closeModal(); play('confirm'); R.beginEncounter(r); syncPhase(true); } },
     ],
   });
@@ -799,11 +831,12 @@ export function openInventory() {
           }));
     };
 
-    // The guns are read against each other, so they sit side by side; the rest
-    // of the fit is a list.
+    // Slots are read against each other, so they sit two to a row in the order
+    // items.js declares them — hull beside shield, engine beside reactor, and
+    // so on. The heavy mount is the odd one out and takes a row to itself.
     const slots = el('div.slot-grid', null,
       el('div.slot-guns', null, ...SLOTS.filter(x => x.kind === 'weapon').map(slotCard)),
-      ...SLOTS.filter(x => x.kind !== 'weapon').map(slotCard));
+      el('div.slot-pairs', null, ...SLOTS.filter(x => x.kind !== 'weapon').map(slotCard)));
 
     const hfrac = Math.max(0, ship.hull / s.maxHull);
     const statRows = [

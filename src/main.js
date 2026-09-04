@@ -314,6 +314,7 @@ function applyInput(world) {
   inp.dash = down('Space') || down('ShiftLeft') || down('ShiftRight');
   inp.abilities[0] = down('Digit1') || down('KeyQ');
   inp.abilities[1] = down('Digit2') || down('KeyE');
+  inp.abilities[2] = down('Digit3') || down('KeyR');
 }
 
 // ---------------------------------------------------------------------------

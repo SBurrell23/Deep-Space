@@ -116,7 +116,7 @@ export function blankInput() {
     moveX: 0, moveY: 0,
     aimX: WORLD_W, aimY: WORLD_H / 2,
     firePrimary: false, fireSecondary: false, fireTertiary: false,
-    dash: false, abilities: [false, false],
+    dash: false, abilities: [false, false, false],
   };
 }
 
@@ -164,7 +164,7 @@ function createPlayer(ship) {
     dashTime: 0,
     invuln: 0,
 
-    abilities: (ship.abilities || []).slice(0, 2).map(a => ({
+    abilities: (ship.abilities || []).slice(0, 3).map(a => ({
       id: a.id, name: a.name, icon: a.icon, energy: a.energy,
       cooldown: a.cooldown * (s.cooldownMult || 1),
       timer: 0,
