@@ -182,7 +182,7 @@ export function installDOM() {
     play() { return Promise.resolve(); }, pause() {}, load() {},
     paused: true, volume: 1, currentTime: 0, loop: false,
     width: 0, height: 0,
-    getContext: () => makeCtx2D(),
+    getContext() { if (!this._ctx) this._ctx = makeCtx2D(); return this._ctx; },
   });
 
   globalThis.document = {
@@ -206,13 +206,25 @@ function makeCtx2D() {
     _calls: calls,
     canvas: { width: 1280, height: 720 },
     save: rec('save'), restore: rec('restore'), translate: rec('translate'),
+    setTransform: rec('setTransform'), resetTransform: rec('resetTransform'),
+    arcTo: rec('arcTo'), quadraticCurveTo: rec('quadraticCurveTo'),
     rotate: rec('rotate'), scale: rec('scale'), beginPath: rec('beginPath'),
     closePath: rec('closePath'), moveTo: rec('moveTo'), lineTo: rec('lineTo'),
     arc: rec('arc'), ellipse: rec('ellipse'), rect: rec('rect'),
     fill: rec('fill'), stroke: rec('stroke'), fillRect: rec('fillRect'),
     strokeRect: rec('strokeRect'), clearRect: rec('clearRect'),
     fillText: rec('fillText'), strokeText: rec('strokeText'),
-    drawImage: rec('drawImage'), clip: rec('clip'), setLineDash: rec('setLineDash'),
+    // Mirrors the real browser: drawing from a zero-sized canvas throws
+    // InvalidStateError. Faking this catches a whole class of boot bugs.
+    drawImage(src, ...rest) {
+      if (src && (src.width === 0 || src.height === 0)) {
+        const err = new Error("Failed to execute 'drawImage': the image argument is a canvas element with a width or height of 0.");
+        err.name = 'InvalidStateError';
+        throw err;
+      }
+      calls.push(['drawImage', src, ...rest]);
+    },
+    clip: rec('clip'), setLineDash: rec('setLineDash'),
     createLinearGradient: () => ({ addColorStop() {} }),
     createRadialGradient: () => ({ addColorStop() {} }),
     measureText: (t) => ({ width: String(t).length * 6 }),

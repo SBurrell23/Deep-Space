@@ -37,6 +37,8 @@ const C = {
 
 let stars = null;
 let nebulaCanvas = null;
+/** Viewport size the starfield was generated for, so resizes regenerate it. */
+let starfieldSize = { w: 0, h: 0 };
 
 function buildStars(w, h, seed = 7) {
   const rng = new RNG(seed);
@@ -58,7 +60,10 @@ function buildStars(w, h, seed = 7) {
 /** A soft nebula wash, rendered once and reused — cheap and it sells depth. */
 function buildNebula(w, h, hue) {
   const cv = document.createElement('canvas');
-  cv.width = w; cv.height = h;
+  // Never zero: drawImage() throws InvalidStateError on a 0-sized source, and
+  // a page can genuinely boot at zero size (a background tab, a hidden frame).
+  cv.width = Math.max(1, Math.floor(w));
+  cv.height = Math.max(1, Math.floor(h));
   const ctx = cv.getContext('2d');
   const rng = new RNG(hue.length * 31 + w);
   for (let i = 0; i < 5; i++) {
@@ -76,11 +81,14 @@ function buildNebula(w, h, hue) {
 
 export function resizeBackdrop(canvas) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  canvas.width = Math.floor(window.innerWidth * dpr);
-  canvas.height = Math.floor(window.innerHeight * dpr);
+  const w = Math.max(1, window.innerWidth);
+  const h = Math.max(1, window.innerHeight);
+  canvas.width = Math.max(1, Math.floor(w * dpr));
+  canvas.height = Math.max(1, Math.floor(h * dpr));
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  stars = buildStars(window.innerWidth, window.innerHeight);
+  stars = buildStars(w, h);
+  starfieldSize = { w, h };
   nebulaCanvas = null;
 }
 
@@ -88,10 +96,16 @@ export function resizeBackdrop(canvas) {
  * @param mood  'menu' | 'travel' | 'combat' — changes drift speed and tint.
  */
 export function drawBackdrop(canvas, t, mood = 'menu', tint = null) {
-  const ctx = canvas.getContext('2d');
   const w = window.innerWidth, h = window.innerHeight;
-  if (!stars) resizeBackdrop(canvas);
+  // A zero-sized viewport (a background tab, a collapsed frame) has nothing to
+  // draw into, and every canvas call against it is either wasted or throws.
+  if (w <= 0 || h <= 0) return;
 
+  // Rebuild if the window changed size since the field was generated —
+  // otherwise a page that booted small keeps a stale, undersized starfield.
+  if (!stars || starfieldSize.w !== w || starfieldSize.h !== h) resizeBackdrop(canvas);
+
+  const ctx = canvas.getContext('2d');
   ctx.fillStyle = C.void;
   ctx.fillRect(0, 0, w, h);
 
