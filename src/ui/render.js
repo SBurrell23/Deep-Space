@@ -166,11 +166,13 @@ export function layoutFrames(ship, enemy, w, h, showEnemyInterior) {
   // the ships have to keep clear of them. Below the stylesheet's 860px
   // breakpoint those panels stack in normal flow instead and the stage is all
   // ours — reserving desktop margins there would push the ship off-screen.
-  const overlaid = w >= 860;
-  const insetX = overlaid ? 300 : 8;
-  const insetTop = overlaid ? 40 : 8;
-  const insetBottom = overlaid ? 130 : 8;
-  const insetRight = overlaid ? 40 : 8;
+  const overlaid = w > 860;   // matches the stylesheet's `max-width: 860px`
+  // The side margins have to clear the shield bubble, which is drawn 22px
+  // outside the frame; at 8px it was being sliced off by the canvas edge.
+  const insetX = overlaid ? 300 : 26;
+  const insetTop = overlaid ? 40 : 30;   // the ship name + hull bar live here
+  const insetBottom = overlaid ? 130 : 12;
+  const insetRight = overlaid ? 40 : 26;
   const availW = Math.max(160, w - insetX - insetRight);
   const availH = Math.max(120, h - insetTop - insetBottom);
 

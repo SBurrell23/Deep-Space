@@ -161,11 +161,12 @@ canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: bloc
   font-size: 12.5px;
   letter-spacing: .05em;
   font-style: italic;
+  text-wrap: balance;   /* stop the second line orphaning a single word */
 }
 
 .menu { display: flex; flex-direction: column; gap: 9px; }
 
-.version { margin-top: 30px; color: #4d5872; font-size: 11px; letter-spacing: .06em; }
+.version { margin-top: 30px; color: #6b789a; font-size: 11px; letter-spacing: .06em; }
 
 /* =========================================================================
    Buttons and form controls
@@ -317,11 +318,13 @@ input[type="checkbox"]:checked::after {
 }
 .ship-row:hover { background: rgba(255,255,255,.04); }
 .ship-row.selected { background: rgba(23,162,184,.13); border-color: var(--cyan-1); }
-.ship-row.locked { opacity: .42; cursor: not-allowed; }
+/* A new profile has nine locked hulls; at .42 with a steel-3 name the whole
+   sidebar was effectively blank rather than merely greyed out. */
+.ship-row.locked { opacity: .7; cursor: not-allowed; }
 .ship-row canvas { flex: none; }
 .ship-row .rname { font-size: 13px; color: var(--white); }
 .ship-row .rsub { font-size: 10.5px; color: var(--dim); letter-spacing: .05em; }
-.ship-row.locked .rname { color: var(--steel-3); }
+.ship-row.locked .rname { color: var(--steel-4); }
 
 .ship-detail { padding: 24px 26px; overflow-y: auto; }
 .ship-detail h3 {
@@ -389,7 +392,9 @@ input[type="checkbox"]:checked::after {
   align-items: flex-start;
 }
 .ach.earned { border-color: var(--cyan-1); background: rgba(23,162,184,.09); }
-.ach.locked { opacity: .5; }
+/* Almost every card on this screen is locked; at .5 the whole page was
+   unreadable rather than merely de-emphasised. */
+.ach.locked { opacity: .74; }
 .ach canvas { flex: none; margin-top: 2px; }
 .ach .an { font-size: 12.5px; color: var(--white); letter-spacing: .04em; }
 .ach.earned .an { color: var(--cyan-3); }
@@ -598,7 +603,12 @@ input[type="checkbox"]:checked::after {
 /* --- weapons bar --- */
 .weapon-bar {
   position: absolute;
-  left: 10px; right: 10px; bottom: 10px;
+  left: 10px; bottom: 10px;
+  /* Hug the slots. Stretched to the full window it reads as a broken, empty
+     dock whenever the ship is carrying fewer than five weapons. */
+  width: max-content;
+  max-width: calc(100% - 20px);
+  overflow-x: auto;
   height: var(--weapon-h);
   display: flex;
   gap: 8px;
@@ -637,15 +647,16 @@ input[type="checkbox"]:checked::after {
 .wslot .wbar span { display: block; height: 100%; background: var(--cyan-2); transition: width .08s linear; }
 .wslot.ready .wbar span { background: var(--cyan-3); box-shadow: 0 0 8px var(--cyan-3); }
 .wslot .wtarget { font-size: 9.5px; color: var(--amber-3); letter-spacing: .06em; }
-.wslot .wkey { position: absolute; top: 5px; right: 7px; font-size: 9px; color: var(--steel-3); }
+.wslot .wkey { position: absolute; top: 5px; right: 7px; font-size: 9px; color: var(--steel-4); }
 
 .wslot-empty {
   width: 120px;
+  flex: none;
   border: 1px dashed var(--line);
   border-radius: var(--r);
   display: grid;
   place-items: center;
-  color: #3c4767;
+  color: #5a6a91;
   font-size: 10px;
   letter-spacing: .14em;
   text-transform: uppercase;
@@ -706,6 +717,8 @@ input[type="checkbox"]:checked::after {
   width: 300px;
   display: flex;
   flex-direction: column-reverse;
+  align-items: flex-start;  /* shrink each line to its text — stretched, short
+                               lines drew a 300px empty slab behind themselves */
   gap: 3px;
   pointer-events: none;
   z-index: 2;
@@ -780,6 +793,9 @@ input[type="checkbox"]:checked::after {
   border-top: 1px solid var(--line);
   flex-wrap: wrap;
 }
+/* Park the destructive action at the far end, away from the button people
+   actually mean to press. */
+.modal-actions .btn-danger { order: -1; margin-right: auto; }
 
 .modal-text { color: #c2cee8; margin: 0 0 18px; line-height: 1.6; max-width: 66ch; }
 .modal-text.flavour { font-style: italic; color: var(--steel-4); }
@@ -863,6 +879,17 @@ input[type="checkbox"]:checked::after {
 
 .store-side { display: flex; flex-direction: column; gap: 9px; }
 .store-side h4 { margin: 0 0 2px; font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--steel-4); }
+/* "For Sale" and "Upgrades" are bare headings in the store markup and were
+   picking up browser defaults next to the styled sidebar headings. */
+.store-grid > div > h4,
+.store-grid ~ h4 {
+  margin: 0 0 9px;
+  font-size: 10.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--steel-4);
+}
+.store-grid ~ h4 { margin-top: 24px; }
 .buyrow { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .buyrow .bname { flex: 1; color: #b9c6e2; }
 .buyrow .bcost { color: var(--amber-3); font-size: 11px; }
@@ -930,7 +957,9 @@ input[type="checkbox"]:checked::after {
 .summary-hero .score { font-size: 46px; color: var(--cyan-3); margin-top: 16px; line-height: 1; }
 .summary-hero .score-label { font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: var(--dim); margin-top: 5px; }
 
-.summary-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 9px; }
+/* Exactly six stats — a fixed 3x2 grid, so the last one never ends up orphaned
+   on a row of its own next to a run of empty space. */
+.summary-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
 .summary-stats .s { text-align: center; padding: 11px 8px; border: 1px solid var(--line); border-radius: var(--r); background: rgba(0,0,0,.26); }
 .summary-stats .sv { font-size: 19px; color: var(--white); }
 .summary-stats .sl { font-size: 9.5px; color: var(--dim); letter-spacing: .12em; text-transform: uppercase; margin-top: 3px; }
@@ -970,11 +999,29 @@ input[type="checkbox"]:checked::after {
   .ship-list { flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--line); }
   .ship-row { flex: none; flex-direction: column; width: 108px; text-align: center; gap: 5px; }
   .store-grid { grid-template-columns: 1fr; }
-  .panel { position: static; width: auto; height: auto; max-height: 190px; margin: 8px; }
-  .play-area { display: flex; flex-direction: column; }
-  #stage { position: relative; flex: 1; }
-  .weapon-bar { position: static; margin: 0 8px 8px; height: auto; overflow-x: auto; }
-  .combat-controls, .map-controls { position: static; margin: 8px; }
+
+  /* The top bar cannot fit four resource chips, the sector name and the hull
+     readout on one narrow line; let it wrap instead of pushing the hull
+     readout and the menu button off the right edge. */
+  .topbar {
+    height: auto;
+    min-height: var(--topbar-h);
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    padding: 5px 8px;
+  }
+  .topbar-left { flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
+  .topbar-mid { flex-direction: row; align-items: baseline; gap: 7px; }
+
+  /* The panels stop floating over the stage and stack under it. They must keep
+     their own height — before, #stage took the whole column and pushed the
+     systems panel, weapon bar and speed controls off the bottom of a short
+     window entirely. */
+  .play-area { display: flex; flex-direction: column; overflow-y: auto; }
+  #stage { position: relative; flex: none; width: 100%; height: clamp(190px, 38vh, 400px); }
+  .panel { position: static; flex: none; width: auto; height: auto; max-height: 190px; margin: 8px; }
+  .weapon-bar { position: static; flex: none; margin: 0 8px 8px; width: auto; max-width: none; height: auto; overflow-x: auto; }
+  .combat-controls, .map-controls { position: static; flex: none; margin: 8px; flex-wrap: wrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {
