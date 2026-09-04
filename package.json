@@ -1,0 +1,11 @@
+{
+  "name": "deep-space",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deep Space - a vanilla JS roguelike starship sim",
+  "scripts": {
+    "test": "node tests/run.js",
+    "serve": "node tools/serve.js"
+  }
+}
