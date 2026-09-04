@@ -17,8 +17,9 @@ const SUITES = [
   './rng.test.js',
   './audio.test.js',
   './art.test.js',
-  './render.test.js',
   './game.test.js',
+  './sim.test.js',
+  './encounters.test.js',
   './save.test.js',
   './integration.test.js',
 ];

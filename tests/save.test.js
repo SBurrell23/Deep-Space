@@ -1,156 +1,210 @@
-import { describe, it, assert, beforeEach } from './harness.js';
+import { describe, it, assert } from './harness.js';
 import * as save from '../src/core/save.js';
-import { RNG } from '../src/core/rng.js';
-import { startRun, PHASES } from '../src/game/run.js';
+import { unlockedShips, STARTER_SHIP, SHIP_IDS } from '../src/game/ships.js';
+import { ACHIEVEMENTS } from '../src/game/achievements.js';
+
+/** A minimal run-shaped object, enough for recordRunResult. */
+function fakeRun(overrides = {}) {
+  return {
+    seed: 'TEST-0001',
+    elapsed: 1800,
+    ship: {
+      shipId: 'kestrel',
+      name: 'The Kestrel',
+      progress: { level: 9, xp: 0, unspentPoints: 0, attributes: {} },
+    },
+    stats: {
+      kills: 120, nodesCleared: 22, creditsEarned: 900, deepestRing: 6,
+      bossesKilled: 2, perfectClears: 3,
+    },
+    ...overrides,
+  };
+}
 
 describe('profile persistence', () => {
-  beforeEach(() => localStorage.clear());
-
-  it('returns defaults with no stored profile', () => {
+  it('returns a usable default with no stored profile', () => {
+    localStorage.clear();
     const p = save.loadProfile();
-    assert.deepEqual(p.unlockedShips.kestrel, ['A']);
-    assert.equal(p.stats.runs, 0);
+    assert.equal(p.version, save.SAVE_VERSION);
     assert.deepEqual(p.achievements, {});
+    assert.equal(p.stats.runs, 0);
+    assert.equal(p.stats.wins, 0);
+    assert.deepEqual(p.history, []);
+    assert.deepEqual(unlockedShips(p), [STARTER_SHIP], 'only the starter hull on a fresh profile');
   });
 
   it('round-trips a profile', () => {
+    localStorage.clear();
     const p = save.loadProfile();
-    p.stats.runs = 7;
-    p.achievements.first_blood = { at: 123 };
-    save.unlockShip(p, 'torus', 'A');
+    p.achievements.first_blood = Date.now();
+    p.stats.wins = 2;
+    p.lastShip = 'mantis';
     save.saveProfile(p);
 
     const loaded = save.loadProfile();
-    assert.equal(loaded.stats.runs, 7);
     assert.ok(loaded.achievements.first_blood);
-    assert.equal(save.isShipUnlocked(loaded, 'torus', 'A'), true);
-    assert.equal(save.isShipUnlocked(loaded, 'torus', 'B'), false);
+    assert.equal(loaded.stats.wins, 2);
+    assert.equal(loaded.lastShip, 'mantis');
   });
 
   it('survives a corrupt profile without losing the menu', () => {
-    localStorage.setItem(save.KEYS.PROFILE_KEY, '{{{not json at all');
+    localStorage.setItem(save.KEYS.PROFILE_KEY, '{ not json at all');
     const p = save.loadProfile();
-    assert.deepEqual(p.unlockedShips.kestrel, ['A']);
+    assert.equal(p.stats.runs, 0);
+    assert.deepEqual(unlockedShips(p), [STARTER_SHIP]);
+  });
+
+  it('survives a profile that is valid JSON but the wrong shape', () => {
+    localStorage.setItem(save.KEYS.PROFILE_KEY, '[1,2,3]');
+    const p = save.loadProfile();
+    assert.ok(p.stats, 'stats must exist even from nonsense');
+    assert.deepEqual(p.achievements, {});
   });
 
   it('merges an older profile forward instead of discarding it', () => {
-    // A save written before some fields existed.
+    // A profile written by an earlier build is missing fields the UI reads;
+    // dropping it would silently wipe someone's unlocks.
     localStorage.setItem(save.KEYS.PROFILE_KEY, JSON.stringify({
-      version: 1,
-      unlockedShips: { kestrel: ['A'], mantis: ['A'] },
-      stats: { runs: 3 },
+      version: 2,
+      achievements: { victory: 1 },
+      stats: { runs: 5, wins: 1 },
     }));
     const p = save.loadProfile();
-    assert.equal(p.stats.runs, 3, 'existing stats must be kept');
-    assert.equal(p.stats.wins, 0, 'missing stats must be filled in');
-    assert.equal(save.isShipUnlocked(p, 'mantis'), true);
-    assert.ok(p.settings, 'new sections must be added');
+    assert.equal(p.stats.runs, 5, 'existing stats must survive');
+    assert.equal(p.stats.totalKills, 0, 'missing stats must be filled in');
+    assert.ok(p.achievements.victory, 'achievements must survive');
+    assert.ok(Array.isArray(p.history));
+    assert.includes(unlockedShips(p), 'torus', 'a recorded win should still unlock');
   });
 
-  it('never double-unlocks a ship', () => {
+  it('caps the history it keeps', () => {
+    localStorage.clear();
     const p = save.loadProfile();
-    assert.equal(save.unlockShip(p, 'engi', 'A'), true);
-    assert.equal(save.unlockShip(p, 'engi', 'A'), false);
-    assert.equal(p.unlockedShips.engi.length, 1);
+    for (let i = 0; i < 45; i++) save.recordRunResult(p, fakeRun(), 'death');
+    assert.lessOrEqual(p.history.length, 30);
+    assert.equal(p.stats.runs, 45);
+    assert.equal(p.stats.losses, 45);
   });
 
-  it('records run results and keeps a bounded history', () => {
+  it('records a run into lifetime totals', () => {
+    localStorage.clear();
     const p = save.loadProfile();
-    for (let i = 0; i < 30; i++) {
-      save.recordRunResult(p, {
-        won: i % 5 === 0, shipId: 'kestrel', variant: 'A', shipName: 'The Kestrel',
-        sector: 3, score: 100 + i, seconds: 600, beacons: 12, shipsDestroyed: 4,
-        crewLost: 1, scrapEarned: 200, jumps: 12, cause: 'test',
-      });
-    }
-    assert.equal(p.stats.runs, 30);
-    assert.equal(p.stats.wins, 6);
-    assert.equal(p.stats.deaths, 24);
-    assert.equal(p.history.length, 20, 'history should be capped');
-    assert.equal(p.stats.highScore, 129);
+    save.recordRunResult(p, fakeRun(), 'victory');
+    assert.equal(p.stats.runs, 1);
+    assert.equal(p.stats.wins, 1);
+    assert.equal(p.stats.totalKills, 120);
+    assert.equal(p.stats.totalNodes, 22);
+    assert.equal(p.stats.bestRing, 6);
+    assert.equal(p.stats.bestLevel, 9);
+    assert.equal(p.history[0].outcome, 'victory');
+    assert.greater(p.history[0].score, 0);
   });
 
   it('tracks the fastest win only from wins', () => {
+    localStorage.clear();
     const p = save.loadProfile();
-    save.recordRunResult(p, { won: false, seconds: 100, sector: 1, score: 0 });
-    assert.equal(p.stats.fastestWinSeconds, null);
-    save.recordRunResult(p, { won: true, seconds: 900, sector: 8, score: 500 });
-    assert.equal(p.stats.fastestWinSeconds, 900);
-    save.recordRunResult(p, { won: true, seconds: 1500, sector: 8, score: 500 });
-    assert.equal(p.stats.fastestWinSeconds, 900, 'a slower win must not overwrite');
-    save.recordRunResult(p, { won: true, seconds: 400, sector: 8, score: 500 });
-    assert.equal(p.stats.fastestWinSeconds, 400);
+    save.recordRunResult(p, fakeRun({ elapsed: 600 }), 'death');
+    assert.equal(p.stats.fastestWin, null, 'a loss is not a fast win');
+    save.recordRunResult(p, fakeRun({ elapsed: 3600 }), 'victory');
+    assert.equal(p.stats.fastestWin, 3600);
+    save.recordRunResult(p, fakeRun({ elapsed: 1800 }), 'victory');
+    assert.equal(p.stats.fastestWin, 1800, 'a faster win should replace it');
+    save.recordRunResult(p, fakeRun({ elapsed: 9000 }), 'victory');
+    assert.equal(p.stats.fastestWin, 1800, 'a slower win must not replace it');
+  });
+
+  it('keeps best-of stats monotonic', () => {
+    localStorage.clear();
+    const p = save.loadProfile();
+    save.recordRunResult(p, fakeRun({ stats: { ...fakeRun().stats, deepestRing: 9 } }), 'death');
+    save.recordRunResult(p, fakeRun({ stats: { ...fakeRun().stats, deepestRing: 2 } }), 'death');
+    assert.equal(p.stats.bestRing, 9, 'a worse run must not lower a record');
+  });
+
+  it('unlocks hulls as wins and achievements accumulate', () => {
+    localStorage.clear();
+    const p = save.loadProfile();
+    assert.equal(unlockedShips(p).length, 1);
+    p.stats.wins = 3;
+    assert.greater(unlockedShips(p).length, 1);
+    for (const a of ACHIEVEMENTS) p.achievements[a.id] = 1;
+    assert.equal(unlockedShips(p).length, SHIP_IDS.length, 'everything should be unlockable');
+  });
+
+  it('erases everything on request', () => {
+    const p = save.loadProfile();
+    p.stats.wins = 7;
+    save.saveProfile(p);
+    save.saveRun({ seed: 'x', ship: {}, stats: {} });
+    const fresh = save.resetProfile();
+    assert.equal(fresh.stats.wins, 0);
+    assert.equal(save.loadRun(), null, 'wiping data must also drop the run');
   });
 });
 
 describe('run persistence', () => {
-  beforeEach(() => localStorage.clear());
-
-  it('saves and restores an in-progress run', () => {
-    const profile = save.loadProfile();
-    const run = startRun(profile, 'kestrel', 'A', 'SAVE-TEST');
-    run.scrap = 137;
-    save.saveRun(run);
-
-    const loaded = save.loadRun();
-    assert.ok(loaded, 'expected a saved run');
-    assert.equal(loaded.scrap, 137);
-    assert.equal(loaded.ship.shipId, 'kestrel');
-    assert.equal(loaded.seed, 'SAVE-TEST');
-    assert.equal(loaded.map.beacons.length, run.map.beacons.length);
-  });
-
-  it('reports no save when there is none', () => {
+  it('reports no saved run when there is none', () => {
+    localStorage.clear();
     assert.equal(save.loadRun(), null);
     assert.equal(save.hasSavedRun(), false);
     assert.equal(save.savedRunSummary(), null);
   });
 
-  it('rejects a truncated or foreign save', () => {
-    localStorage.setItem(save.KEYS.RUN_KEY, JSON.stringify({ version: 1, run: { nope: true } }));
-    assert.equal(save.loadRun(), null, 'a run with no ship is unusable');
-    localStorage.setItem(save.KEYS.RUN_KEY, JSON.stringify({ version: 99, run: { ship: { shipId: 'kestrel' } } }));
-    assert.equal(save.loadRun(), null, 'a future version must not be loaded');
-    localStorage.setItem(save.KEYS.RUN_KEY, 'garbage');
+  it('stores and returns a run', () => {
+    localStorage.clear();
+    const payload = {
+      seed: 'ABC-1234',
+      ship: { shipId: 'engi', progress: { level: 4 }, hull: 88 },
+      stats: { nodesCleared: 6, deepestRing: 3 },
+      elapsed: 420,
+    };
+    assert.equal(save.saveRun(payload), true);
+    assert.equal(save.hasSavedRun(), true);
+    const summary = save.savedRunSummary();
+    assert.equal(summary.shipId, 'engi');
+    assert.equal(summary.level, 4);
+    assert.equal(summary.nodes, 6);
+    assert.equal(summary.seed, 'ABC-1234');
+  });
+
+  it('rejects a run saved by an incompatible version', () => {
+    localStorage.setItem(save.KEYS.RUN_KEY, JSON.stringify({ version: 1, run: { seed: 'old' } }));
+    assert.equal(save.loadRun(), null, 'a v1 record belongs to a different game');
+  });
+
+  it('survives a corrupt run record', () => {
+    localStorage.setItem(save.KEYS.RUN_KEY, 'not json');
     assert.equal(save.loadRun(), null);
+    assert.equal(save.savedRunSummary(), null);
   });
 
-  it('summarises a save for the continue button', () => {
-    const profile = save.loadProfile();
-    const run = startRun(profile, 'mantis', 'A', 'SUM');
-    save.saveRun(run);
-    const s = save.savedRunSummary();
-    assert.equal(s.shipId, 'mantis');
-    assert.equal(s.sector, 1);
-    assert.greater(s.maxHull, 0);
+  it('tolerates a run record missing the fields the summary reads', () => {
+    localStorage.setItem(save.KEYS.RUN_KEY,
+      JSON.stringify({ version: save.SAVE_VERSION, run: { seed: 'x' } }));
+    assert.equal(save.savedRunSummary(), null, 'a half-written record should not throw');
   });
 
-  it('clears the run without touching the profile', () => {
-    const profile = save.loadProfile();
-    profile.stats.runs = 4;
-    save.saveProfile(profile);
-    save.saveRun(startRun(profile, 'kestrel', 'A', 'CLR'));
+  it('clears a run permanently', () => {
+    save.saveRun({ seed: 'gone', ship: { shipId: 'kestrel', progress: { level: 1 }, hull: 1 }, stats: {} });
     save.clearRun();
-    assert.equal(save.loadRun(), null);
-    assert.equal(save.loadProfile().stats.runs, 4, 'losing a run must not wipe progress');
+    assert.equal(save.hasSavedRun(), false);
+  });
+});
+
+describe('storage diagnostics', () => {
+  it('reports a footprint', () => {
+    localStorage.clear();
+    save.saveProfile(save.loadProfile());
+    const f = save.storageFootprint();
+    assert.equal(f.available, true);
+    assert.greater(f.bytes, 0);
   });
 
-  it('keeps the RNG stream reproducible across a save/load', () => {
-    const profile = save.loadProfile();
-    const run = startRun(profile, 'kestrel', 'A', 'RNG-SAVE');
-    const a = RNG.deserialize(run.rngState);
-    save.saveRun(run);
-    const b = RNG.deserialize(save.loadRun().rngState);
-    for (let i = 0; i < 20; i++) assert.equal(a.next(), b.next());
-  });
-
-  it('does not autosave a finished run', () => {
-    const profile = save.loadProfile();
-    const run = startRun(profile, 'kestrel', 'A', 'DONE');
-    run.phase = PHASES.GAME_OVER;
-    save.clearRun();
-    const { autosave } = { autosave: null };
-    void autosave;
-    assert.equal(save.loadRun(), null);
+  it('purges records left by the previous game', () => {
+    localStorage.setItem('deepspace.profile.v1', '{"old":true}');
+    localStorage.setItem('deepspace.run.v1', '{"old":true}');
+    assert.equal(save.purgeLegacy(), 2);
+    assert.equal(localStorage.getItem('deepspace.profile.v1'), null);
+    assert.equal(save.purgeLegacy(), 0, 'purging twice should be a no-op');
   });
 });

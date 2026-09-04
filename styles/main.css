@@ -44,8 +44,6 @@
 
   --r: 3px;
   --topbar-h: 46px;
-  --panel-w: 268px;
-  --weapon-h: 92px;
 }
 
 * { box-sizing: border-box; }
@@ -505,239 +503,6 @@ input[type="checkbox"]:checked::after {
 @keyframes pulse { 50% { opacity: .45; } }
 
 /* =========================================================================
-   In-game: play area
-   ========================================================================= */
-
-.play-area { position: relative; flex: 1; min-height: 0; }
-
-#stage { position: absolute; inset: 0; width: 100%; height: 100%; }
-
-.panel {
-  position: absolute;
-  top: 10px;
-  bottom: calc(var(--weapon-h) + 12px);
-  width: var(--panel-w);
-  background: linear-gradient(180deg, rgba(18,26,46,.93), rgba(10,15,30,.9));
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  backdrop-filter: blur(7px);
-  overflow-y: auto;
-  padding: 10px;
-  z-index: 3;
-}
-.panel-left { left: 10px; }
-
-.panel-title {
-  font-size: 10px;
-  letter-spacing: .2em;
-  text-transform: uppercase;
-  color: var(--steel-4);
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 6px;
-  margin: 4px 0 9px;
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-.panel-title:not(:first-child) { margin-top: 18px; }
-.reactor-readout { color: var(--amber-3); letter-spacing: .06em; }
-
-/* --- system rows --- */
-.system-list { display: flex; flex-direction: column; gap: 4px; }
-
-.sysrow {
-  display: grid;
-  grid-template-columns: 18px 1fr auto;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 6px;
-  border: 1px solid transparent;
-  border-radius: var(--r);
-  cursor: pointer;
-  transition: background .12s, border-color .12s;
-}
-.sysrow:hover { background: rgba(255,255,255,.045); border-color: var(--line); }
-.sysrow.damaged { border-color: var(--red-1); background: rgba(179,36,60,.09); }
-.sysrow.ionised { border-color: var(--cyan-1); background: rgba(23,162,184,.12); }
-.sysrow.hacked { border-color: var(--purple-2); background: rgba(123,63,179,.14); }
-.sysrow .sname { font-size: 11.5px; color: #b9c6e2; letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sysrow.damaged .sname { color: var(--red-3); }
-.sysrow canvas { display: block; }
-
-/* power pips */
-.pips { display: flex; gap: 2px; align-items: center; }
-.pip {
-  width: 6px; height: 13px;
-  border-radius: 1px;
-  background: var(--steel-1);
-  border: 1px solid var(--line);
-}
-.pip.on { background: var(--cyan-2); border-color: var(--cyan-3); box-shadow: 0 0 5px rgba(79,227,245,.5); }
-.pip.zoltan { background: var(--amber-2); border-color: var(--amber-3); box-shadow: 0 0 5px rgba(255,204,92,.5); }
-.pip.damaged { background: var(--red-1); border-color: var(--red-2); }
-.pip.ion { background: var(--cyan-1); border-color: var(--cyan-2); animation: ion-flicker .5s infinite; }
-@keyframes ion-flicker { 50% { opacity: .35; } }
-
-/* --- crew rows --- */
-.crew-list { display: flex; flex-direction: column; gap: 4px; }
-.crewrow {
-  display: grid;
-  grid-template-columns: 16px 1fr;
-  gap: 8px;
-  align-items: center;
-  padding: 4px 6px;
-  border: 1px solid transparent;
-  border-radius: var(--r);
-  cursor: pointer;
-}
-.crewrow:hover { background: rgba(255,255,255,.045); }
-.crewrow.selected { background: rgba(23,162,184,.16); border-color: var(--cyan-1); }
-.crewrow.dead { opacity: .38; }
-.crewrow .cname { font-size: 11.5px; color: #b9c6e2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.crewrow .chp { height: 3px; background: var(--steel-1); border-radius: 2px; overflow: hidden; margin-top: 3px; }
-.crewrow .chp span { display: block; height: 100%; background: var(--green-2); transition: width .2s; }
-.crewrow.hurt .chp span { background: var(--amber-2); }
-.crewrow.dying .chp span { background: var(--red-2); }
-.crewrow canvas { display: block; }
-
-/* --- weapons bar --- */
-.weapon-bar {
-  position: absolute;
-  left: 10px; bottom: 10px;
-  /* Hug the slots. Stretched to the full window it reads as a broken, empty
-     dock whenever the ship is carrying fewer than five weapons. */
-  width: max-content;
-  max-width: calc(100% - 20px);
-  overflow-x: auto;
-  height: var(--weapon-h);
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-  padding: 8px;
-  background: linear-gradient(180deg, rgba(18,26,46,.9), rgba(10,15,30,.94));
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  backdrop-filter: blur(7px);
-  z-index: 3;
-}
-
-.wslot {
-  width: 158px;
-  flex: none;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  padding: 7px 9px;
-  cursor: pointer;
-  background: rgba(0,0,0,.3);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  transition: border-color .12s, background .12s;
-  position: relative;
-  overflow: hidden;
-}
-.wslot:hover { border-color: var(--steel-2); }
-.wslot.powered { border-color: var(--cyan-1); background: rgba(23,162,184,.09); }
-.wslot.ready { border-color: var(--cyan-3); box-shadow: 0 0 13px rgba(79,227,245,.2) inset; }
-.wslot.selected { border-color: var(--amber-3); box-shadow: 0 0 13px rgba(255,204,92,.25); }
-.wslot.unpowered { opacity: .5; }
-.wslot .wname { font-size: 11.5px; color: var(--white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wslot .wmeta { font-size: 10px; color: var(--dim); display: flex; gap: 8px; }
-.wslot .wbar { height: 5px; background: var(--steel-1); border-radius: 3px; overflow: hidden; margin-top: auto; }
-.wslot .wbar span { display: block; height: 100%; background: var(--cyan-2); transition: width .08s linear; }
-.wslot.ready .wbar span { background: var(--cyan-3); box-shadow: 0 0 8px var(--cyan-3); }
-.wslot .wtarget { font-size: 9.5px; color: var(--amber-3); letter-spacing: .06em; }
-.wslot .wkey { position: absolute; top: 5px; right: 7px; font-size: 9px; color: var(--steel-4); }
-
-.wslot-empty {
-  width: 120px;
-  flex: none;
-  border: 1px dashed var(--line);
-  border-radius: var(--r);
-  display: grid;
-  place-items: center;
-  color: #5a6a91;
-  font-size: 10px;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-}
-
-/* --- floating controls --- */
-.combat-controls, .map-controls {
-  position: absolute;
-  right: 10px;
-  top: 10px;
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  z-index: 4;
-  background: rgba(10,15,30,.86);
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  padding: 6px 8px;
-  backdrop-filter: blur(7px);
-}
-.combat-controls[hidden], .map-controls[hidden] { display: none; }
-.speed-group { display: flex; gap: 3px; }
-.speed-group .btn.active { color: var(--cyan-3); border-color: var(--cyan-3); }
-
-.ftl-meter {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 10px;
-  letter-spacing: .14em;
-  color: var(--dim);
-}
-.ftl-meter > span {
-  display: block;
-  width: 74px; height: 5px;
-  background: var(--steel-1);
-  border-radius: 3px;
-  overflow: hidden;
-  position: relative;
-}
-.ftl-meter > span::after {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--ftl, 0%);
-  background: var(--amber-2);
-  transition: width .2s;
-}
-.ftl-meter.ready > span::after { background: var(--cyan-3); box-shadow: 0 0 9px var(--cyan-3); }
-.ftl-meter.ready b { color: var(--cyan-3); }
-.ftl-meter b { font-weight: 400; }
-
-/* --- event log --- */
-.event-log {
-  position: absolute;
-  left: calc(var(--panel-w) + 22px);
-  bottom: calc(var(--weapon-h) + 18px);
-  width: 300px;
-  display: flex;
-  flex-direction: column-reverse;
-  align-items: flex-start;  /* shrink each line to its text — stretched, short
-                               lines drew a 300px empty slab behind themselves */
-  gap: 3px;
-  pointer-events: none;
-  z-index: 2;
-}
-.logline {
-  font-size: 11px;
-  color: #97a5c6;
-  background: rgba(5,7,15,.7);
-  border-left: 2px solid var(--cyan-1);
-  padding: 3px 8px;
-  border-radius: 0 2px 2px 0;
-  animation: log-in .3s ease both;
-}
-.logline.good { border-left-color: var(--green-2); color: var(--green-3); }
-.logline.bad { border-left-color: var(--red-2); color: var(--red-3); }
-.logline.fade { opacity: 0; transition: opacity .7s; }
-@keyframes log-in { from { opacity: 0; transform: translateX(-9px); } }
-
-/* =========================================================================
    Modals
    ========================================================================= */
 
@@ -853,85 +618,6 @@ input[type="checkbox"]:checked::after {
 .setting-note { font-size: 11px; color: var(--dim); line-height: 1.5; margin: 14px 0 0; }
 .setting-note.warn { color: var(--amber-3); }
 
-/* --- star map --- */
-.map-modal-body { padding: 0; }
-.starmap-wrap { position: relative; }
-#starmap { display: block; width: 100%; height: auto; background: #060912; }
-.map-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  padding: 11px 20px;
-  border-top: 1px solid var(--line);
-  font-size: 10.5px;
-  color: var(--dim);
-}
-.map-legend span { display: flex; align-items: center; gap: 5px; }
-.map-legend i { width: 9px; height: 9px; border-radius: 50%; display: block; }
-.map-hint { padding: 0 22px 4px; font-size: 11.5px; color: var(--steel-4); }
-
-/* --- store --- */
-.store-grid { display: grid; grid-template-columns: 1fr 250px; gap: 22px; }
-.store-items { display: flex; flex-direction: column; gap: 6px; }
-.sitem {
-  display: grid;
-  grid-template-columns: 20px 1fr auto;
-  gap: 11px;
-  align-items: center;
-  padding: 9px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  background: rgba(0,0,0,.26);
-  cursor: pointer;
-  transition: border-color .12s, background .12s;
-}
-.sitem:hover:not(.sold):not(.cant) { border-color: var(--cyan-1); background: rgba(23,162,184,.08); }
-.sitem.sold { opacity: .35; cursor: default; text-decoration: line-through; }
-.sitem.cant { opacity: .55; cursor: not-allowed; }
-.sitem .sn { font-size: 12.5px; color: var(--white); }
-.sitem .sd { font-size: 10.5px; color: var(--dim); line-height: 1.35; margin-top: 2px; }
-.sitem .sc { font-size: 13px; color: var(--amber-3); white-space: nowrap; }
-.sitem.cant .sc { color: var(--red-3); }
-.sitem canvas { display: block; }
-
-.store-side { display: flex; flex-direction: column; gap: 9px; }
-.store-side h4 { margin: 0 0 2px; font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--steel-4); }
-/* "For Sale" and "Upgrades" are bare headings in the store markup and were
-   picking up browser defaults next to the styled sidebar headings. */
-.store-grid > div > h4,
-.store-grid ~ h4 {
-  margin: 0 0 9px;
-  font-size: 10.5px;
-  letter-spacing: .16em;
-  text-transform: uppercase;
-  color: var(--steel-4);
-}
-.store-grid ~ h4 { margin-top: 24px; }
-.buyrow { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.buyrow .bname { flex: 1; color: #b9c6e2; }
-.buyrow .bcost { color: var(--amber-3); font-size: 11px; }
-
-.upgrade-list { display: flex; flex-direction: column; gap: 4px; }
-.uprow {
-  display: grid;
-  grid-template-columns: 16px 1fr auto auto;
-  gap: 9px;
-  align-items: center;
-  padding: 6px 9px;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  font-size: 12px;
-  cursor: pointer;
-  background: rgba(0,0,0,.24);
-}
-.uprow:hover:not(.maxed):not(.cant) { border-color: var(--cyan-1); }
-.uprow.maxed { opacity: .45; cursor: default; }
-.uprow.cant { opacity: .6; cursor: not-allowed; }
-.uprow .ulvl { color: var(--cyan-3); font-size: 11px; }
-.uprow .ucost { color: var(--amber-3); font-size: 11px; }
-.uprow.cant .ucost { color: var(--red-3); }
-.uprow canvas { display: block; }
-
 /* --- toasts --- */
 .toast-stack {
   position: fixed;
@@ -965,22 +651,6 @@ input[type="checkbox"]:checked::after {
 @keyframes toast-in { from { opacity: 0; transform: translateX(38px); } }
 @keyframes toast-out { to { opacity: 0; transform: translateX(38px); } }
 
-/* --- run summary --- */
-.summary-hero { text-align: center; padding: 10px 0 22px; }
-.summary-hero .verdict { font-size: 30px; letter-spacing: .22em; text-transform: uppercase; }
-.summary-hero.win .verdict { color: var(--green-3); text-shadow: 0 0 30px rgba(92,245,155,.35); }
-.summary-hero.loss .verdict { color: var(--red-3); text-shadow: 0 0 30px rgba(255,92,114,.28); }
-.summary-hero .cause { color: var(--steel-4); margin-top: 7px; font-style: italic; }
-.summary-hero .score { font-size: 46px; color: var(--cyan-3); margin-top: 16px; line-height: 1; }
-.summary-hero .score-label { font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: var(--dim); margin-top: 5px; }
-
-/* Exactly six stats — a fixed 3x2 grid, so the last one never ends up orphaned
-   on a row of its own next to a run of empty space. */
-.summary-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
-.summary-stats .s { text-align: center; padding: 11px 8px; border: 1px solid var(--line); border-radius: var(--r); background: rgba(0,0,0,.26); }
-.summary-stats .sv { font-size: 19px; color: var(--white); }
-.summary-stats .sl { font-size: 9.5px; color: var(--dim); letter-spacing: .12em; text-transform: uppercase; margin-top: 3px; }
-
 /* --- tooltip --- */
 .tip {
   position: fixed;
@@ -1006,16 +676,11 @@ input[type="checkbox"]:checked::after {
    Responsive
    ========================================================================= */
 
-@media (max-width: 1080px) {
-  :root { --panel-w: 224px; }
-  .event-log { display: none; }
-}
 
 @media (max-width: 860px) {
   .hangar { grid-template-columns: 1fr; }
   .ship-list { flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--line); }
   .ship-row { flex: none; flex-direction: column; width: 108px; text-align: center; gap: 5px; }
-  .store-grid { grid-template-columns: 1fr; }
 
   /* The top bar cannot fit four resource chips, the sector name and the hull
      readout on one narrow line; let it wrap instead of pushing the hull
@@ -1029,16 +694,6 @@ input[type="checkbox"]:checked::after {
   }
   .topbar-left { flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
   .topbar-mid { flex-direction: row; align-items: baseline; gap: 7px; }
-
-  /* The panels stop floating over the stage and stack under it. They must keep
-     their own height — before, #stage took the whole column and pushed the
-     systems panel, weapon bar and speed controls off the bottom of a short
-     window entirely. */
-  .play-area { display: flex; flex-direction: column; overflow-y: auto; }
-  #stage { position: relative; flex: none; width: 100%; height: clamp(190px, 38vh, 400px); }
-  .panel { position: static; flex: none; width: auto; height: auto; max-height: 190px; margin: 8px; }
-  .weapon-bar { position: static; flex: none; margin: 0 8px 8px; width: auto; max-width: none; height: auto; overflow-x: auto; }
-  .combat-controls, .map-controls { position: static; flex: none; margin: 8px; flex-wrap: wrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -85,7 +85,7 @@ export const SHIPS = {
     attributes: { hull: 3, shields: 3, weapons: 3, reactor: 2, thrusters: 3, systems: 6 },
     gear: { primary: 'arc', secondary: 'gravity_well', computer: 'survey_array' },
     perk: { id: 'farsight', name: 'Farsight', desc: 'See two extra jumps into the fog, and node threats are always revealed.' },
-    unlock: { kind: 'achievement', id: 'cartographer', desc: 'Earn "Cartographer".' },
+    unlock: { kind: 'achievement', id: 'nodes_60', desc: 'Earn "Cartographer" — clear 60 nodes in one run.' },
   },
 
   crystal: {

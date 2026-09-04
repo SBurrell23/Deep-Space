@@ -1,271 +1,290 @@
-import { describe, it, assert, beforeEach } from './harness.js';
-import { loadProfile } from '../src/core/save.js';
+import { describe, it, assert } from './harness.js';
+import { RNG } from '../src/core/rng.js';
 import * as R from '../src/game/run.js';
-import { reachableBeacons, atExit, beaconById } from '../src/game/sector.js';
-import { allLoadouts } from '../src/game/ships.js';
-import { livingCrew } from '../src/game/ship.js';
-import { playRun } from './autoplay.js';
+import * as U from '../src/game/universe.js';
+import * as S from '../src/game/ship.js';
+import * as save from '../src/core/save.js';
+import { SHIP_IDS } from '../src/game/ships.js';
+import { ENCOUNTER_TYPES } from '../src/game/encounters/index.js';
+import { createPilot, pilotInput } from './pilot.js';
 
-const fresh = () => loadProfile();
+const DT = 1 / 60;
 
-function newRun(shipId = 'kestrel', variant = 'A', seed = 'IT-1') {
-  const profile = fresh();
-  const run = R.startRun(profile, shipId, variant, seed);
-  run.profile = profile;
+function freshRun(seed = 'INT', shipId = 'kestrel') {
+  localStorage.clear();
+  return R.startRun({ shipId, seed, profile: save.loadProfile() });
+}
+
+/** Play the current encounter to a conclusion with the synthetic pilot. */
+function playEncounter(run, skill = 0.8, cap = 200) {
+  const bot = createPilot(skill, new RNG('bot'));
+  let i = 0;
+  while (run.phase === 'action' && i++ < cap * 60) {
+    pilotInput(run.world, bot, DT);
+    R.tick(run, DT);
+  }
+  return run;
+}
+
+/** Advance the run until it reaches one of `phases`, driving whatever comes up. */
+function driveTo(run, phases, { skill = 0.8, maxSteps = 400 } = {}) {
+  const want = new Set(phases);
+  let guard = 0;
+  while (!want.has(run.phase) && guard++ < maxSteps) {
+    switch (run.phase) {
+      case 'map': {
+        const options = U.reachable(run.map).filter(n => !n.cleared);
+        if (!options.length) return run;
+        const level = run.ship.progress.level;
+        options.sort((a, b) => Math.abs(a.threat - level) - Math.abs(b.threat - level));
+        R.jump(run, options[0].id);
+        break;
+      }
+      case 'brief': R.beginEncounter(run); break;
+      case 'action': playEncounter(run, skill); break;
+      case 'debrief': R.collectRewards(run); break;
+      case 'levelup':
+        while (S.hasUnspentPoints(run.ship)) if (!R.spendPoint(run, 'hull')) break;
+        R.closeLevelUp(run);
+        break;
+      case 'shop': R.leaveShop(run); break;
+      case 'anomaly': {
+        const ok = R.anomalyChoices(run).filter(c => c.ok);
+        if (ok.length) R.chooseAnomaly(run, ok[0].index);
+        if (run.phase === 'anomaly') R.closeAnomaly(run);
+        break;
+      }
+      default: return run;
+    }
+  }
   return run;
 }
 
 describe('run lifecycle', () => {
-  beforeEach(() => localStorage.clear());
-
-  it('starts every ship and layout without error', () => {
-    for (const { shipId, variant } of allLoadouts()) {
-      const run = newRun(shipId, variant, `START-${shipId}${variant}`);
-      assert.equal(run.phase, R.PHASES.MAP);
-      assert.greater(run.ship.weapons.length, 0, `${shipId}_${variant} has no weapons`);
-      assert.greater(livingCrew(run.ship).length, 0, `${shipId}_${variant} has no crew`);
-      assert.greater(run.fuel, 0);
-      assert.equal(run.sectorIndex, 0);
-    }
+  it('starts on the map with a revealed neighbourhood', () => {
+    const run = freshRun();
+    assert.equal(run.phase, 'map');
+    assert.greater(U.reachable(run.map).length, 0);
+    assert.greater(run.ship.hull, 0);
   });
 
-  it('refuses to jump without fuel or a charged drive', () => {
-    const run = newRun();
-    const target = reachableBeacons(run.map)[0];
-    run.ship.ftlCharge = 0;
-    assert.equal(R.jump(run, target.id).ok, false, 'an uncharged drive cannot jump');
-    run.ship.ftlCharge = 1;
-    run.fuel = 0;
-    assert.equal(R.jump(run, target.id).ok, false, 'no fuel means no jump');
-    run.fuel = 5;
-    assert.equal(R.jump(run, target.id).ok, true);
-  });
-
-  it('refuses to jump to a non-adjacent beacon', () => {
-    const run = newRun();
-    run.ship.ftlCharge = 1;
-    const adjacent = new Set(reachableBeacons(run.map).map(b => b.id));
-    const far = run.map.beacons.find(b => !adjacent.has(b.id) && b.id !== run.map.currentId);
-    if (far) assert.equal(R.jump(run, far.id).ok, false);
-  });
-
-  it('spends fuel and advances the fleet on each jump', () => {
-    const run = newRun();
-    const fuel = run.fuel;
-    const fleet = run.map.fleetColumn;
-    run.ship.ftlCharge = 1;
-    R.jump(run, reachableBeacons(run.map)[0].id);
-    assert.equal(run.fuel, fuel - 1);
-    assert.greater(run.map.fleetColumn, fleet);
-  });
-
-  it('clears fires, breaches and vacuum on a jump but keeps system damage', () => {
-    const run = newRun();
-    run.ship.rooms[0].fire = 0.8;
-    run.ship.rooms[1].breaches = 2;
-    run.ship.rooms[2].oxygen = 0;
-    run.ship.systems.shields.damage = 2;
-    run.ship.ftlCharge = 1;
-    R.jump(run, reachableBeacons(run.map)[0].id);
-    assert.equal(run.ship.rooms[0].fire, 0);
-    assert.equal(run.ship.rooms[1].breaches, 0);
-    assert.equal(run.ship.rooms[2].oxygen, 1);
-    assert.equal(run.ship.systems.shields.damage, 2, 'battle damage should survive the jump');
-  });
-
-  it('always offers at least one usable choice at an event', () => {
-    // Walk a run through many events and confirm none can deadlock.
-    for (let seed = 0; seed < 25; seed++) {
-      const run = newRun('kestrel', 'A', `EV-${seed}`);
-      for (let i = 0; i < 12; i++) {
-        if (run.phase !== R.PHASES.MAP) break;
-        run.ship.ftlCharge = 1;
-        run.fuel = Math.max(run.fuel, 3);
-        const options = reachableBeacons(run.map);
-        if (!options.length || atExit(run.map)) break;
-        R.jump(run, options[0].id);
-        if (run.phase === R.PHASES.EVENT) {
-          const usable = R.eventChoices(run).filter(c => c.ok);
-          assert.greater(usable.length, 0, `seed ${seed}: event ${run.pendingEvent.id} has no usable choice`);
-          R.chooseEventOption(run, usable[0].index);
-        }
-        if (run.phase === R.PHASES.COMBAT) { run.combat.finish('fled'); }
-        if (run.phase === R.PHASES.STORE) R.leaveStore(run);
-      }
-    }
-  });
-
-  it('never lets the player strand themselves at zero fuel', () => {
-    const run = newRun();
-    run.fuel = 0;
-    assert.equal(R.canSendDistress(run), true);
-    const res = R.sendDistressSignal(run);
-    assert.equal(res.ok, true);
-    assert.ok(run.fuel > 0 || run.phase === R.PHASES.COMBAT,
-      'a distress call must yield fuel or a fight worth salvaging');
-  });
-
-  it('will not send a distress signal while fuel remains', () => {
-    const run = newRun();
-    assert.equal(R.canSendDistress(run), false);
-    assert.equal(R.sendDistressSignal(run).ok, false);
-  });
-});
-
-describe('store transactions', () => {
-  beforeEach(() => localStorage.clear());
-
-  function storeRun() {
-    const run = newRun('kestrel', 'A', 'SHOP');
-    run.store = { items: [], fuelPrice: 3, missilePrice: 6, dronePartPrice: 8, repairPrice: 2, hasRepairs: true };
-    run.phase = R.PHASES.STORE;
-    return run;
-  }
-
-  it('will not sell you what you cannot afford', () => {
-    const run = storeRun();
-    run.scrap = 5;
-    run.store.items.push({ kind: 'weapon', id: 'laser_burst2', name: 'Burst Laser II', cost: 80, sold: false });
-    const res = R.buyItem(run, 0);
+  it('refuses a jump to an unlinked node', () => {
+    const run = freshRun();
+    const far = run.map.nodes.find(n =>
+      n.id !== run.map.currentId && !run.map.nodes[run.map.currentId].links.includes(n.id));
+    const res = R.jump(run, far.id);
     assert.equal(res.ok, false);
-    assert.equal(run.scrap, 5, 'a failed purchase must not charge');
-    assert.equal(run.store.items[0].sold, false);
+    assert.equal(run.map.currentId, 0, 'the ship should not have moved');
   });
 
-  it('charges exactly once for a successful purchase', () => {
-    const run = storeRun();
-    run.scrap = 200;
-    run.store.items.push({ kind: 'weapon', id: 'laser_burst2', name: 'Burst Laser II', cost: 80, sold: false });
-    const before = run.ship.weapons.length;
-    assert.equal(R.buyItem(run, 0).ok, true);
-    assert.equal(run.scrap, 120);
-    assert.equal(run.ship.weapons.length, before + 1);
-    assert.equal(R.buyItem(run, 0).ok, false, 'an item cannot be bought twice');
-    assert.equal(run.scrap, 120);
-  });
-
-  it('refuses a weapon with no free hardpoint', () => {
-    const run = storeRun();
-    run.scrap = 500;
-    while (run.ship.weapons.length < run.ship.weaponSlots) {
-      run.ship.weapons.push({ slot: run.ship.weapons.length, weaponId: 'laser_basic', charge: 0, powered: false, autofire: true, targetRoom: null, charges: 0, rampHeat: 0, chainBonus: 0 });
+  it('routes each node type to the right phase', () => {
+    const run = freshRun('ROUTE');
+    // Force each type onto a reachable node and check where it lands.
+    for (const [type, expected] of [['anomaly', 'anomaly'], ['shop', 'shop'], ['combat', 'brief']]) {
+      const fresh = freshRun(`ROUTE-${type}`);
+      const target = U.reachable(fresh.map)[0];
+      const enc = [...ENCOUNTER_TYPES[type] ? [type] : []][0];
+      const candidate = Object.values(fresh.map.nodes).find(n => n.type === type);
+      if (!candidate) continue;
+      target.type = type;
+      target.encounterId = candidate.encounterId;
+      target.cleared = false;
+      R.jump(fresh, target.id);
+      assert.equal(fresh.phase, expected, `${type} should open the ${expected} phase`);
     }
-    run.store.items.push({ kind: 'weapon', id: 'laser_burst2', name: 'Burst Laser II', cost: 80, sold: false });
-    assert.equal(R.buyItem(run, 0).ok, false);
-    assert.equal(run.scrap, 500);
   });
 
-  it('repairs hull for scrap and stops at full', () => {
-    const run = storeRun();
-    run.scrap = 100;
-    run.ship.hull = 10;
-    const res = R.repairAtStore(run, 5);
-    assert.equal(res.ok, true);
-    assert.equal(run.ship.hull, 15);
-    assert.equal(run.scrap, 100 - res.cost);
-    run.ship.hull = run.ship.maxHull;
-    assert.equal(R.repairAtStore(run, 3).ok, false, 'cannot repair a full hull');
+  it('plays an encounter through to a payout', () => {
+    const run = freshRun('PAYOUT');
+    driveTo(run, ['debrief', 'dead'], { maxSteps: 30 });
+    if (run.phase === 'dead') return;   // an unlucky first node is legitimate
+    const p = run.pending;
+    assert.ok(p, 'expected pending rewards');
+    if (!p.fled) {
+      assert.greater(p.xp, 0);
+      assert.ok(p.credits >= 0);
+      const before = run.ship.progress.xp + run.ship.credits;
+      R.collectRewards(run);
+      assert.greater(run.ship.progress.xp + run.ship.credits, before - 1);
+    }
   });
 
-  it('upgrades a system and charges the table price', () => {
-    const run = storeRun();
-    run.scrap = 500;
-    const before = run.ship.systems.engines.level;
-    const res = R.upgradeSystem(run, 'engines');
-    assert.equal(res.ok, true);
-    assert.equal(run.ship.systems.engines.level, before + 1);
-    assert.equal(run.scrap, 500 - res.cost);
+  it('only pays out a node once', () => {
+    const run = freshRun('ONCE');
+    driveTo(run, ['map', 'dead'], { maxSteps: 60 });
+    if (run.phase !== 'map') return;
+    const cleared = run.map.nodes.find(n => n.cleared && n.id !== 0);
+    if (!cleared) return;
+    // Walk back onto it: a cleared node is travel only.
+    if (U.canJumpTo(run.map, cleared.id)) {
+      const credits = run.ship.credits;
+      const res = R.jump(run, cleared.id);
+      assert.equal(res.revisit, true);
+      assert.equal(run.phase, 'map');
+      assert.equal(run.ship.credits, credits, 'a revisit must not pay again');
+    }
   });
 
-  it('refuses to upgrade past a system maximum', () => {
-    const run = storeRun();
-    run.scrap = 99999;
-    for (let i = 0; i < 20; i++) R.upgradeSystem(run, 'oxygen');
-    assert.equal(run.ship.systems.oxygen.level, 3, 'oxygen caps at level 3');
-    assert.equal(R.upgradeSystem(run, 'oxygen').ok, false);
+  it('carries hull damage between encounters but restores the shield', () => {
+    const run = freshRun('CARRY');
+    driveTo(run, ['map', 'dead'], { maxSteps: 60 });
+    if (run.phase !== 'map') return;
+    run.ship.hull = Math.max(1, run.ship.stats.maxHull * 0.4);
+    const hurt = run.ship.hull;
+
+    const next = U.reachable(run.map).find(n => !n.cleared
+      && ENCOUNTER_TYPES[n.type]?.action);
+    if (!next) return;
+    R.jump(run, next.id);
+    if (run.phase !== 'brief') return;
+    R.beginEncounter(run);
+    assert.close(run.world.player.hull, hurt, 0.001, 'hull damage must persist');
+    assert.close(run.world.player.shield, run.ship.stats.maxShield, 0.001,
+      'the shield is an in-fight buffer and must refill between nodes');
   });
 
-  it('sells equipment but never the last weapon', () => {
-    const run = storeRun();
-    const start = run.scrap;
-    assert.equal(R.sellEquipment(run, 'weapon', 0).ok, true);
-    assert.greater(run.scrap, start);
-    assert.equal(run.ship.weapons.length, 1);
-    assert.equal(R.sellEquipment(run, 'weapon', 0).ok, false, 'the last weapon cannot be sold');
+  it('ends the run when the ship is destroyed', () => {
+    const run = freshRun('DEATH');
+    driveTo(run, ['brief', 'dead'], { maxSteps: 30 });
+    if (run.phase !== 'brief') return;
+    R.beginEncounter(run);
+    run.ship.hull = 1;
+    run.world.player.hull = 1;
+    run.world.player.shield = 0;
+    run.world.player.invuln = 0;
+    // Take a hit big enough to finish it.
+    run.world.eBullets.push({
+      x: run.world.player.x, y: run.world.player.y, vx: 0, vy: 0,
+      r: 40, damage: 9999, life: 5, delay: 0, dead: false, sprite: 'eb_bolt',
+    });
+    for (let i = 0; i < 30 && run.phase === 'action'; i++) R.tick(run, DT);
+    assert.equal(run.phase, 'dead');
   });
 
-  it('buys resources at the listed price', () => {
-    const run = storeRun();
-    run.scrap = 50;
-    const fuel = run.fuel;
-    assert.equal(R.buyResource(run, 'fuel', 3).ok, true);
-    assert.equal(run.fuel, fuel + 3);
-    assert.equal(run.scrap, 50 - 9);
-    run.scrap = 1;
-    assert.equal(R.buyResource(run, 'fuel', 5).ok, false);
+  it('reveals more of the map as it travels', () => {
+    const run = freshRun('REVEAL');
+    const before = U.stats(run.map).seen + U.stats(run.map).visited;
+    driveTo(run, ['dead'], { maxSteps: 90 });
+    const after = U.stats(run.map).seen + U.stats(run.map).visited;
+    assert.greater(after, before, 'travel should push the fog back');
   });
 });
 
-describe('scoring and endings', () => {
-  beforeEach(() => localStorage.clear());
-
-  it('scores a win far above an equivalent loss', () => {
-    const a = newRun('kestrel', 'A', 'SCORE-A');
-    a.sectorIndex = 5; a.stats.shipsDestroyed = 20; a.stats.scrapEarned = 400; a.stats.beacons = 40;
-    const loss = R.computeScore(a, false);
-    const win = R.computeScore(a, true);
-    assert.greater(win, loss * 2);
+describe('run — economy and progression', () => {
+  it('levels up and banks points over a run', () => {
+    const run = freshRun('LEVEL');
+    driveTo(run, ['dead'], { maxSteps: 200 });
+    assert.greater(run.ship.progress.level + run.stats.nodesCleared, 1,
+      'a run should make some progress');
   });
 
-  it('records the ending on the profile and clears the save', () => {
-    const run = newRun();
-    R.endRun(run, false, 'Your ship was destroyed.');
-    assert.equal(run.phase, R.PHASES.GAME_OVER);
-    assert.equal(run.profile.stats.runs, 1);
-    assert.equal(run.profile.stats.deaths, 1);
-    assert.equal(run.profile.history[0].won, false);
+  it('buys repairs at a shop and charges for them', () => {
+    const run = freshRun('SHOP');
+    // Put a shop next door and walk into it.
+    const target = U.reachable(run.map)[0];
+    const shopNode = run.map.nodes.find(n => n.type === 'shop');
+    if (!shopNode) return;
+    target.type = 'shop';
+    target.encounterId = shopNode.encounterId;
+    target.cleared = false;
+    R.jump(run, target.id);
+    assert.equal(run.phase, 'shop');
+
+    run.ship.hull = run.ship.stats.maxHull * 0.5;
+    run.ship.credits = 5000;
+    const stock = run.shopStock;
+    assert.greater(stock.items.length, 0, 'a shop with nothing to sell is not a shop');
+    const credits = run.ship.credits;
+    const res = R.buyRepair(run);
+    assert.equal(res.ok, true);
+    assert.equal(run.ship.hull, run.ship.stats.maxHull);
+    assert.ok(run.ship.credits < credits, 'repairs must cost something');
+    assert.equal(R.buyRepair(run).ok, false, 'cannot repair twice');
   });
 
-  it('unlocks the next hull on a victory', () => {
-    const run = newRun('kestrel', 'A', 'WIN');
-    R.endRun(run, true, 'The Swarm Flagship is destroyed.');
-    assert.equal(run.phase, R.PHASES.VICTORY);
-    assert.ok(run.profile.unlockedShips.torus, 'winning with the Kestrel unlocks the Torus');
-    assert.includes(run.profile.unlockedShips.kestrel, 'B', 'winning also unlocks layout B');
-    assert.equal(run.profile.stats.wins, 1);
+  it('refuses to buy without the credits', () => {
+    const run = freshRun('BROKE');
+    const target = U.reachable(run.map)[0];
+    const shopNode = run.map.nodes.find(n => n.type === 'shop');
+    if (!shopNode) return;
+    target.type = 'shop'; target.encounterId = shopNode.encounterId; target.cleared = false;
+    R.jump(run, target.id);
+    run.ship.credits = 0;
+    const item = run.shopStock.items[0];
+    assert.equal(R.buyItem(run, item.uid).ok, false);
+    assert.equal(R.buyItem(run, 'nonexistent').ok, false);
   });
 
-  it('is idempotent — ending twice does not double-count', () => {
-    const run = newRun();
-    R.endRun(run, false, 'destroyed');
-    R.endRun(run, false, 'destroyed again');
-    assert.equal(run.profile.stats.runs, 1);
+  it('sells inventory for credits', () => {
+    const run = freshRun('SELL');
+    const items = S.rollLoot(run.ship, run.rng, { threat: 5, crates: 1 });
+    S.addItem(run.ship, items[0]);
+    const credits = run.ship.credits;
+    const res = R.sellItem(run, items[0].uid);
+    assert.equal(res.ok, true);
+    assert.greater(run.ship.credits, credits);
+    assert.equal(R.sellItem(run, items[0].uid).ok, false, 'cannot sell it twice');
   });
 });
 
-describe('full-run soak', () => {
-  beforeEach(() => localStorage.clear());
+describe('run — persistence', () => {
+  it('round-trips a run through save and load', () => {
+    const run = freshRun('SAVE');
+    driveTo(run, ['map', 'dead'], { maxSteps: 60 });
+    if (run.phase !== 'map') return;
 
-  it('plays complete runs for every ship without crashing', () => {
-    // One run per loadout: the broadest smoke test in the suite.
-    for (const { shipId, variant } of allLoadouts()) {
-      const result = playRun({ seed: `SOAK-${shipId}-${variant}`, shipId, variant });
-      assert.ok(result.sector >= 1, `${shipId}_${variant} did not get anywhere`);
-      assert.ok(result.cause || result.won, `${shipId}_${variant} ended with no reason`);
-      assert.ok(result.steps < 4000, `${shipId}_${variant} hit the step limit — possible deadlock`);
+    run.ship.credits = 777;
+    save.saveRun(R.serialize(run));
+    const restored = R.deserialize(save.loadRun(), save.loadProfile());
+
+    assert.equal(restored.seed, run.seed);
+    assert.equal(restored.ship.credits, 777);
+    assert.equal(restored.ship.progress.level, run.ship.progress.level);
+    assert.close(restored.ship.hull, run.ship.hull, 0.001);
+    assert.equal(restored.map.currentId, run.map.currentId);
+    assert.equal(restored.map.nodes.length, run.map.nodes.length);
+    // The map regenerates from the seed; its content must match exactly.
+    for (let i = 0; i < run.map.nodes.length; i += 7) {
+      assert.equal(restored.map.nodes[i].encounterId, run.map.nodes[i].encounterId);
+      assert.equal(restored.map.nodes[i].cleared, run.map.nodes[i].cleared);
     }
   });
 
-  it('produces varied outcomes across seeds rather than one scripted path', () => {
-    const sectors = new Set();
-    for (let i = 0; i < 12; i++) {
-      sectors.add(playRun({ seed: `VARY-${i}` }).sector);
+  it('preserves equipped gear and inventory', () => {
+    const run = freshRun('GEAR');
+    const items = S.rollLoot(run.ship, run.rng, { threat: 8, crates: 3 });
+    for (const it of items) S.addItem(run.ship, it);
+    S.equip(run.ship, items[0].uid);
+
+    save.saveRun(R.serialize(run));
+    const restored = R.deserialize(save.loadRun(), save.loadProfile());
+    assert.equal(restored.ship.inventory.length, run.ship.inventory.length);
+    for (const slot of Object.keys(run.ship.equipped)) {
+      assert.equal(restored.ship.equipped[slot]?.uid, run.ship.equipped[slot]?.uid, `slot ${slot} drifted`);
     }
-    assert.greater(sectors.size, 2, 'different seeds should produce different runs');
+    assert.equal(restored.ship.stats.maxHull, run.ship.stats.maxHull, 'stats must rebuild from gear');
   });
 
-  it('earns achievements over the course of a run', () => {
-    const result = playRun({ seed: 'ACH-1' });
-    assert.greater(result.achievements, 0, 'a full run should earn something');
+  it('a dead run is deleted for good', () => {
+    const run = freshRun('PERMA');
+    save.saveRun(R.serialize(run));
+    assert.ok(save.hasSavedRun());
+    save.clearRun();
+    assert.notOk(save.hasSavedRun());
+    assert.equal(save.loadRun(), null);
   });
+});
+
+describe('every hull is playable', () => {
+  for (const shipId of SHIP_IDS) {
+    it(`${shipId} starts, fights and survives its first encounter`, () => {
+      const run = freshRun(`HULL-${shipId}`, shipId);
+      assert.greater(run.ship.stats.maxHull, 0);
+      assert.ok(run.ship.equipped.primary, 'no primary weapon');
+      driveTo(run, ['debrief', 'dead', 'map'], { maxSteps: 25 });
+      assert.ok(['debrief', 'dead', 'map', 'levelup', 'shop', 'anomaly'].includes(run.phase),
+        `${shipId} ended in an unexpected phase: ${run.phase}`);
+      assert.equal(run.frameError, undefined);
+    });
+  }
 });

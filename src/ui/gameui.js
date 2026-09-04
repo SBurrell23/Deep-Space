@@ -1,1291 +1,907 @@
 /**
- * The in-game interface: resource bar, system power panel, crew list, weapon
- * bar, canvas input, and the map / event / store / summary modals.
+ * The in-game interface.
  *
- * This module reads the run and calls into run.js; it never mutates game state
- * directly beyond UI-only fields (selection, targeting).
+ * Owns the top bar, the combat HUD, the map surface and every phase modal
+ * (brief, debrief, anomaly, shop, level-up, inventory). It reads the run and
+ * calls into run.js; it never mutates game state itself beyond UI-only fields.
+ *
+ * The phase machine in run.js is the single source of truth for what should be
+ * on screen — `syncPhase` reacts to it rather than tracking its own idea of
+ * where the player is, so the two can never disagree.
  */
 
-import { $, $$, el, clear, show, duration, tooltip, tipContent, hideTooltip } from './dom.js';
-import { openModal, closeModal, isModalOpen, toast, flushAchievements, showScreen } from './screens.js';
+import { $, $$, el, clear, show, tooltip, tipContent, hideTooltip } from './dom.js';
+import { openModal, closeModal, isModalOpen, toast, showScreen } from './screens.js';
 import * as render from './render.js';
-import { spriteEl, TILE } from './render.js';
+import { spriteEl } from './render.js';
+import { MapView, threatLabel } from './mapview.js';
 import { play } from '../audio/sfx.js';
 import * as music from '../audio/music.js';
 import * as R from '../game/run.js';
 import * as S from '../game/ship.js';
-import { SYSTEMS, effectiveLevel, getSystem } from '../game/systems.js';
-import { getWeapon, getDrone, getAugment } from '../game/weapons.js';
-import { RACES, getRace } from '../game/crew.js';
-import { SECTOR_TYPES, beaconById, reachableBeacons, atExit } from '../game/sector.js';
-import { upgradeOptions, reactorUpgradeCost, itemDetails } from '../game/store.js';
-import { RNG } from '../core/rng.js';
+import * as U from '../game/universe.js';
+import { ENCOUNTER_TYPES } from '../game/encounters/index.js';
+import { ATTRIBUTES, previewPoint, xpToNext, MAX_LEVEL, ATTR_CAP } from '../game/attributes.js';
+import { SLOTS, RARITY_BY_ID, describeItem, sellValue, powerScore, ABILITIES } from '../game/items.js';
 
-/** UI-only state that doesn't belong in the run. */
 export const ui = {
-  selectedCrew: null,
-  selectedWeapon: null,
-  hoverRoom: null,
-  hoverShip: null,
-  frames: null,
   effects: new render.EffectLayer(),
-  sceneProp: null,
-  shake: 0,
+  map: null,
+  lastPhase: null,
+  autofire: true,
+  hoverNode: null,
   logLines: [],
 };
 
-let game = null;   // { run, profile, save } supplied by main.js
+let game = null;
+const run = () => game.run;
 
 export function attach(ctx) {
   game = ctx;
+  ui.map = new MapView($('#mapcanvas'));
   bindTopbar();
-  bindCanvas();
-  bindControls();
+  bindMap();
+  bindCombatHud();
 }
 
-const run = () => game.run;
-
 // ---------------------------------------------------------------------------
-// Top bar and panels
+// Top bar
 // ---------------------------------------------------------------------------
-
-const lastResources = {};
 
 function bindTopbar() {
   $('#topbar').addEventListener('click', e => {
     const action = e.target.closest('[data-action]')?.dataset.action;
     if (action === 'pause-menu') openPauseMenu();
     else if (action === 'settings') game.openSettings();
+    else if (action === 'inventory') openInventory();
   });
+  $('#point-pip').addEventListener('click', () => openLevelUp());
 }
 
 export function renderTopbar() {
   const r = run();
   if (!r) return;
-
-  setRes('#res-scrap', r.scrap, 'scrap');
-  setRes('#res-fuel', r.fuel, 'fuel', r.fuel <= 0 ? 'critical' : r.fuel <= 3 ? 'low' : '');
-  setRes('#res-missiles', r.missiles, 'missiles');
-  setRes('#res-drones', r.droneParts, 'droneParts');
-
-  const sectorDef = SECTOR_TYPES[r.map.sectorType];
-  $('#sector-label').textContent = `Sector ${r.sectorIndex + 1} / 8`;
-  $('#sector-type').textContent = sectorDef ? sectorDef.name : '';
-
   const ship = r.ship;
-  const frac = ship.hull / ship.maxHull;
+
+  const credits = $('#res-credits');
+  const b = credits.querySelector('b');
+  if (b.textContent !== String(ship.credits)) b.textContent = ship.credits;
+  const icon = credits.querySelector('i');
+  if (!icon.dataset.drawn) { icon.dataset.drawn = '1'; icon.append(spriteEl('icon_scrap', 1)); }
+
+  $('#level-num').textContent = ship.progress.level;
+  const need = xpToNext(ship.progress.level);
+  const frac = need === Infinity ? 1 : ship.progress.xp / need;
+  $('#xp-fill').style.width = `${Math.max(0, Math.min(1, frac)) * 100}%`;
+
+  const pts = ship.progress.unspentPoints;
+  show($('#point-pip'), pts > 0);
+  $('#point-count').textContent = pts;
+
+  const node = r.node || U.currentNode(r.map);
+  $('#node-label').textContent = node?.encounterName || 'Deep Space';
+  $('#node-sub').textContent = node
+    ? `Ring ${node.ring} · Threat ${node.threat} · ${ENCOUNTER_TYPES[node.type]?.label || ''}`
+    : '';
+
+  const hfrac = ship.hull / ship.stats.maxHull;
   const readout = $('#hull-readout');
-  readout.innerHTML = `HULL <b>${ship.hull}</b>/${ship.maxHull}`;
-  readout.className = `hull-readout ${frac <= 0.25 ? 'critical' : frac <= 0.55 ? 'hurt' : ''}`;
-}
-
-function setRes(sel, value, key, cls = '') {
-  const node = $(sel);
-  const b = node.querySelector('b');
-  if (b.textContent !== String(value)) {
-    b.textContent = value;
-    if (lastResources[key] !== undefined && value !== lastResources[key]) {
-      node.classList.remove('bump');
-      void node.offsetWidth;   // restart the animation
-      node.classList.add('bump');
-    }
-    lastResources[key] = value;
-  }
-  node.className = `res ${cls}`;
-  const icon = node.querySelector('i');
-  if (!icon.dataset.drawn) {
-    icon.dataset.drawn = '1';
-    icon.append(spriteEl(icon.dataset.icon, 1));
-  }
-}
-
-// --- systems ---------------------------------------------------------------
-
-export function renderSystems() {
-  const r = run();
-  const ship = r.ship;
-  const list = clear($('#system-list'));
-
-  $('#reactor-readout').textContent = `${S.usedReactor(ship)}/${S.totalReactor(ship)}`;
-
-  for (const sys of S.systemList(ship)) {
-    const def = getSystem(sys.id);
-    const isReactor = def.kind === 'reactor';
-    const zoltan = S.zoltanPower(ship, sys.id);
-
-    const row = el('div.sysrow', {
-      dataset: { system: sys.id },
-      class: `sysrow ${sys.damage > 0 ? 'damaged' : ''} ${sys.ionCharges > 0 ? 'ionised' : ''} ${sys.hackActive ? 'hacked' : ''}`,
-    },
-    spriteEl(def.icon, 1),
-    el('span.sname', { text: def.name }),
-    buildPips(sys, def, zoltan, isReactor));
-
-    if (isReactor) {
-      row.addEventListener('click', () => adjustPower(sys.id, +1));
-      row.addEventListener('contextmenu', e => { e.preventDefault(); adjustPower(sys.id, -1); });
-    } else {
-      row.addEventListener('click', () => play('tab'));
-    }
-
-    tooltip(row, () => {
-      const stats = [`Level ${sys.level}${sys.damage ? ` · ${sys.damage} damaged` : ''}`];
-      if (isReactor) stats.push(`Power ${sys.power}/${S.powerCap(ship, sys.id)}`);
-      if (zoltan) stats.push(`${zoltan} free power from Zoltan crew`);
-      if (sys.ionCharges) stats.push(`Ionised: ${sys.ionCharges} bars locked`);
-      if (sys.hackActive) stats.push('HACKED — disabled');
-      if (def.mannedBonus) stats.push(`Manned: ${def.mannedBonus}`);
-      if (isReactor) stats.push('Click to add power · right-click to remove');
-      return tipContent(def.name, def.desc, stats);
-    });
-
-    list.append(row);
-  }
-}
-
-function buildPips(sys, def, zoltan, isReactor) {
-  const wrap = el('span.pips');
-  if (!isReactor) {
-    // Subsystems show level rather than power.
-    for (let i = 0; i < sys.level; i++) {
-      wrap.append(el(`span.pip${i < sys.level - sys.damage ? '.on' : '.damaged'}`));
-    }
-    return wrap;
-  }
-  for (let i = 0; i < sys.level; i++) {
-    const damaged = i >= sys.level - sys.damage;
-    const ionised = !damaged && i >= sys.level - sys.damage - sys.ionCharges;
-    const on = !damaged && !ionised && i < sys.power;
-    const free = on && i < zoltan;
-    wrap.append(el(`span.pip${damaged ? '.damaged' : ionised ? '.ion' : free ? '.zoltan' : on ? '.on' : ''}`));
-  }
-  return wrap;
-}
-
-function adjustPower(sysId, delta) {
-  const moved = S.setPower(run().ship, sysId, delta);
-  if (moved === 0) { play('power_fail', { throttle: 200 }); return; }
-  play(delta > 0 ? 'power_up' : 'power_down');
-  renderSystems();
-  renderWeapons();
-}
-
-// --- crew ------------------------------------------------------------------
-
-export function renderCrew() {
-  const r = run();
-  const list = clear($('#crew-list'));
-
-  for (const c of r.ship.crew) {
-    const frac = c.hp / c.maxHp;
-    const row = el('div.crewrow', {
-      dataset: { crew: c.id },
-      class: `crewrow ${c.dead ? 'dead' : ''} ${ui.selectedCrew === c.id ? 'selected' : ''} ${frac < 0.3 ? 'dying' : frac < 0.7 ? 'hurt' : ''}`,
-    },
-    spriteEl(c.dead ? `crew_${c.race}_dead` : `crew_${c.race}_idle0`, 1),
-    el('div', null,
-      el('div.cname', { text: c.name + (c.onEnemyShip ? ' ⇢' : '') }),
-      el('div.chp', null, el('span', { style: { width: `${Math.max(0, frac * 100)}%` } }))));
-
-    if (!c.dead) {
-      row.addEventListener('click', () => {
-        ui.selectedCrew = ui.selectedCrew === c.id ? null : c.id;
-        play('crew_select');
-        renderCrew();
-      });
-    }
-
-    tooltip(row, () => {
-      const race = getRace(c.race);
-      const skills = Object.entries(c.skills).filter(([, v]) => v > 0)
-        .map(([k, v]) => `${k} ${'★'.repeat(v)}`).join('  ');
-      return tipContent(`${c.name} — ${race.name}`, race.desc, [
-        `Health ${Math.round(c.hp)}/${c.maxHp}`,
-        c.manning ? `Manning ${SYSTEMS[c.manning].name}` : null,
-        skills || 'No skills trained yet',
-        c.dead ? 'Dead' : 'Click to select, then click a room to send them there',
-      ]);
-    });
-
-    list.append(row);
-  }
-}
-
-// --- weapons ---------------------------------------------------------------
-
-export function renderWeapons() {
-  const r = run();
-  const ship = r.ship;
-  const bar = clear($('#weapon-bar'));
-
-  ship.weapons.forEach((w, i) => {
-    const def = getWeapon(w.weaponId);
-    const ready = S.isWeaponReady(ship, i);
-    const progress = S.weaponProgress(ship, i);
-    const noAmmo = def.ammo && r.missiles < def.ammo;
-
-    const slot = el('div.wslot', {
-      class: `wslot ${w.powered ? 'powered' : 'unpowered'} ${ready ? 'ready' : ''} ${ui.selectedWeapon === i ? 'selected' : ''}`,
-      dataset: { slot: String(i) },
-    },
-    el('span.wkey', { text: String(i + 1) }),
-    el('div.wname', { text: def.name }),
-    el('div.wmeta', null,
-      el('span', { text: `${def.power}⚡` }),
-      el('span', { text: def.type }),
-      noAmmo ? el('span', { text: 'NO AMMO', style: { color: '#ff5c72' } }) : null),
-    el('div.wtarget', {
-      text: w.targetRoom != null ? `→ room ${w.targetRoom}` : (w.autofire ? 'no target' : 'manual'),
-    }),
-    el('div.wbar', null, el('span', { style: { width: `${progress * 100}%` } })));
-
-    slot.addEventListener('click', () => {
-      if (!w.powered) { play('error'); return; }
-      ui.selectedWeapon = ui.selectedWeapon === i ? null : i;
-      play('beacon_select');
-      renderWeapons();
-    });
-    slot.addEventListener('contextmenu', e => {
-      e.preventDefault();
-      if (S.toggleWeapon(ship, i)) { play(w.powered ? 'power_down' : 'power_up'); }
-      else play('power_fail');
-      renderSystems();
-      renderWeapons();
-    });
-
-    tooltip(slot, () => tipContent(def.name, def.desc, [
-      `${def.power} power · ${def.charge}s charge`,
-      def.type === 'beam' ? `Beam · ${def.damage} damage across ${def.length} rooms`
-        : `${def.shots || 1} shot(s) · ${def.damage} damage`,
-      def.pierce ? (def.pierce >= 99 ? 'Ignores shields entirely' : `Pierces ${def.pierce} shield layer(s)`) : null,
-      def.ion ? `${def.ion} ion charge(s)` : null,
-      def.ammo ? `Uses ${def.ammo} missile(s) per volley` : null,
-      def.fire ? `${Math.round(def.fire * 100)}% chance of fire` : null,
-      def.breach ? `${Math.round(def.breach * 100)}% chance of breach` : null,
-      'Click to aim · right-click to power on/off',
-    ]));
-
-    bar.append(slot);
-  });
-
-  ship.drones.forEach((d, i) => {
-    const def = getDrone(d.droneId);
-    const slot = el('div.wslot', {
-      class: `wslot ${d.powered ? 'powered' : 'unpowered'} ${d.deployed ? 'ready' : ''}`,
-    },
-    el('div.wname', { text: def.name }),
-    el('div.wmeta', null, el('span', { text: `${def.power}⚡` }), el('span', { text: 'drone' })),
-    el('div.wtarget', { text: d.deployed ? 'deployed' : d.powered ? 'launching' : 'offline' }),
-    el('div.wbar', null, el('span', { style: { width: d.deployed ? '100%' : '0%' } })));
-
-    slot.addEventListener('click', () => {
-      if (!d.powered && r.droneParts <= 0) { play('error'); logLine('No drone parts left.', 'bad'); return; }
-      if (S.toggleDrone(ship, i)) {
-        if (ship.drones[i].powered) { r.droneParts = Math.max(0, r.droneParts - 1); play('drone_launch'); }
-        else play('power_down');
-      } else play('power_fail');
-      renderTopbar(); renderSystems(); renderWeapons();
-    });
-    tooltip(slot, () => tipContent(def.name, def.desc, [`${def.power} power`, 'Costs one drone part to launch']));
-    bar.append(slot);
-  });
-
-  for (let i = ship.weapons.length; i < ship.weaponSlots; i++) {
-    bar.append(el('div.wslot-empty', { text: 'Empty' }));
-  }
+  readout.innerHTML = `HULL <b>${Math.round(ship.hull)}</b>/${ship.stats.maxHull}`;
+  readout.className = `hull-readout ${hfrac <= 0.25 ? 'critical' : hfrac <= 0.55 ? 'hurt' : ''}`;
 }
 
 // ---------------------------------------------------------------------------
-// Canvas input
+// Combat HUD
 // ---------------------------------------------------------------------------
 
-function bindCanvas() {
-  const canvas = $('#stage');
-
-  canvas.addEventListener('pointermove', e => {
-    const hit = hitTest(e);
-    ui.hoverRoom = hit ? hit.room : null;
-    ui.hoverShip = hit ? hit.side : null;
-    canvas.style.cursor = hit ? 'pointer' : 'default';
-  });
-
-  canvas.addEventListener('pointerleave', () => { ui.hoverRoom = null; ui.hoverShip = null; });
-
-  canvas.addEventListener('click', e => {
-    const hit = hitTest(e);
-    if (!hit) { ui.selectedCrew = null; ui.selectedWeapon = null; renderCrew(); renderWeapons(); return; }
-    if (hit.side === 'player') onPlayerRoomClick(hit.room);
-    else onEnemyRoomClick(hit.room);
-  });
-
-  canvas.addEventListener('contextmenu', e => {
-    e.preventDefault();
-    const hit = hitTest(e);
-    if (hit && hit.side === 'player') ventRoom(hit.room);
-  });
-}
-
-/** Map a pointer event to { side, room } using the frames the renderer used. */
-function hitTest(e) {
-  const frames = ui.frames;
-  if (!frames) return null;
-  const rect = $('#stage').getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-
-  for (const [side, frame] of [['player', frames.player], ['enemy', frames.enemy]]) {
-    if (!frame) continue;
-    if (side === 'enemy' && !frame.interior) {
-      // Silhouette enemies are still targetable as a whole.
-      if (x >= frame.x && x <= frame.x + frame.w && y >= frame.y && y <= frame.y + frame.h) {
-        return { side, room: 0, whole: true };
-      }
-      continue;
-    }
-    const scale = frame.scale || 1;
-    const lx = (x - frame.x) / (TILE * scale);
-    const ly = (y - frame.y) / (TILE * scale);
-    for (const room of frame.layout.rooms) {
-      if (lx >= room.x && lx < room.x + room.w && ly >= room.y && ly < room.y + room.h) {
-        return { side, room: room.id };
-      }
-    }
-  }
-  return null;
-}
-
-function onPlayerRoomClick(roomId) {
-  const r = run();
-  if (ui.selectedCrew) {
-    if (S.orderCrewTo(r.ship, ui.selectedCrew, roomId)) play('crew_move');
-    else play('error');
-    return;
-  }
-  // With no crew selected, clicking a system room selects whoever is in it.
-  const occupants = S.crewInRoom(r.ship, roomId);
-  if (occupants.length) {
-    ui.selectedCrew = occupants[0].id;
-    play('crew_select');
-    renderCrew();
-  }
-}
-
-function onEnemyRoomClick(roomId) {
-  const r = run();
-  if (!r.combat) return;
-  if (ui.selectedWeapon == null) {
-    // No weapon picked: aim every powered weapon that has no target yet.
-    let aimed = 0;
-    r.ship.weapons.forEach((w, i) => {
-      if (w.powered && w.targetRoom == null) { w.targetRoom = roomId; aimed++; }
-    });
-    if (aimed === 0) r.ship.weapons.forEach(w => { if (w.powered) w.targetRoom = roomId; });
-    play('beacon_select');
-  } else {
-    const w = r.ship.weapons[ui.selectedWeapon];
-    if (w && w.powered) { w.targetRoom = roomId; play('beacon_select'); }
-    ui.selectedWeapon = null;
-  }
-  renderWeapons();
-}
-
-function ventRoom(roomId) {
-  const r = run();
-  if (S.ventRoom(r.ship, roomId, true)) {
-    play('vent');
-    logLine('Airlock opened — venting compartment.');
-    setTimeout(() => S.ventRoom(r.ship, roomId, false), 6000);
-  } else {
-    play('error');
-    logLine('That compartment has no airlock.', 'bad');
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Controls
-// ---------------------------------------------------------------------------
-
-function bindControls() {
-  $('#combat-controls').addEventListener('click', e => {
-    const btn = e.target.closest('[data-action],[data-speed]');
-    if (!btn) return;
-    if (btn.dataset.speed) {
-      const s = Number(btn.dataset.speed);
-      run().combat?.setSpeed(s);
-      if (run().combat) run().combat.paused = false;
-      play('tab');
-      renderCombatControls();
-    } else if (btn.dataset.action === 'toggle-pause') {
-      togglePause();
-    } else if (btn.dataset.action === 'flee') {
-      attemptFlee();
-    }
-  });
-
-  $('#map-controls').addEventListener('click', e => {
+function bindCombatHud() {
+  $('#combat-hud').addEventListener('click', e => {
     const action = e.target.closest('[data-action]')?.dataset.action;
-    if (action === 'open-map') openStarMap();
-    else if (action === 'distress') doDistress();
+    if (action === 'flee') confirmFlee();
   });
 }
 
-export function togglePause() {
-  const c = run().combat;
-  if (!c) return;
-  const paused = c.togglePause();
-  play(paused ? 'cancel' : 'confirm');
-  renderCombatControls();
+export function renderCombatHud() {
+  const r = run();
+  const world = r?.world;
+  if (!world) return;
+  const p = world.player;
+
+  bar('#bar-hull', '#hull-num', p.hull, p.maxHull);
+  bar('#bar-shield', '#shield-num', p.shield, p.maxShield);
+  bar('#bar-energy', '#energy-num', p.energy, p.maxEnergy);
+
+  // Objective.
+  const obj = world.encounter.objective || { kind: 'clear' };
+  let text = '';
+  if (obj.kind === 'survive') {
+    text = `HOLD OUT — ${Math.max(0, Math.ceil((obj.seconds || 60) - world.time))}s`;
+  } else if (obj.kind === 'reach') {
+    const total = obj.distance ?? ((world.corridor?.pixelLength ?? 8000) - world.w);
+    text = `REACH THE END — ${Math.round(Math.min(1, world.scrollX / total) * 100)}%`;
+  } else if (obj.kind === 'boss') {
+    text = 'DESTROY THE CAPITAL SHIP';
+  } else if (obj.kind === 'destroy') {
+    text = `DESTROY THE TARGET`;
+  } else {
+    const left = world.enemies.length + world.pendingSpawns.length;
+    text = world.spawner.exhausted ? `CLEAR THE FIELD — ${left} left` : 'CLEAR THE FIELD';
+  }
+  $('#hud-objective').textContent = text;
+
+  // Weapons.
+  const wrap = $('#hud-weapons');
+  if (wrap.dataset.built !== world.encounter.id) {
+    wrap.dataset.built = world.encounter.id;
+    clear(wrap);
+    for (const [key, label] of [['primary', 'LMB'], ['secondary', 'RMB']]) {
+      const wep = p[key];
+      wrap.append(el(`div.wslot${wep ? '' : '.wslot-empty'}`, { dataset: { slot: key } },
+        el('span.wkey', { text: label }),
+        el('span.wname', { text: wep ? wep.name : 'Empty' }),
+        el('span.wcool')));
+    }
+  }
+  for (const [key] of [['primary'], ['secondary']]) {
+    const node = wrap.querySelector(`[data-slot="${key}"]`);
+    if (!node) continue;
+    const wep = p[key];
+    const timer = key === 'primary' ? p.primaryTimer : p.secondaryTimer;
+    const cool = node.querySelector('.wcool');
+    if (wep && timer > 0) {
+      cool.style.width = `${Math.min(1, timer / (1 / Math.max(0.05, wep.rof))) * 100}%`;
+      node.classList.add('cooling');
+    } else {
+      cool.style.width = '0%';
+      node.classList.remove('cooling');
+    }
+    node.classList.toggle('starved', !!wep && p.energy < wep.energy);
+  }
+
+  // Abilities.
+  const abil = $('#hud-abilities');
+  if (abil.dataset.built !== String(p.abilities.length)) {
+    abil.dataset.built = String(p.abilities.length);
+    clear(abil);
+    p.abilities.forEach((a, i) => {
+      abil.append(el('div.ability', { dataset: { idx: String(i) } },
+        spriteEl(a.icon || 'icon_sys_battery', 1),
+        el('span.akey', { text: String(i + 1) }),
+        el('span.acool')));
+    });
+  }
+  p.abilities.forEach((a, i) => {
+    const node = abil.querySelector(`[data-idx="${i}"]`);
+    if (!node) return;
+    const ready = a.timer <= 0 && p.energy >= a.energy;
+    node.classList.toggle('ready', ready);
+    node.querySelector('.acool').style.height = `${Math.min(1, a.timer / a.cooldown) * 100}%`;
+  });
+
+  // Dash charges.
+  const dash = $('#hud-dash');
+  const want = `${p.dashCharges}/${p.dashMax}`;
+  if (dash.dataset.state !== want) {
+    dash.dataset.state = want;
+    clear(dash);
+    dash.append(el('span.dlabel', { text: 'DASH' }));
+    for (let i = 0; i < p.dashMax; i++) {
+      dash.append(el(`span.dpip${i < p.dashCharges ? '.on' : ''}`));
+    }
+  }
 }
 
-function attemptFlee() {
+function bar(fillSel, numSel, value, max) {
+  const frac = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
+  $(fillSel).style.width = `${frac * 100}%`;
+  $(numSel).textContent = `${Math.round(value)}/${Math.round(max)}`;
+}
+
+function confirmFlee() {
+  openModal({
+    title: 'Disengage?',
+    body: el('p.modal-text', {
+      text: 'You will jump clear with the damage you have taken. The node stays uncleared and you keep nothing from it.',
+    }),
+    actions: [
+      { text: 'Keep Fighting', kind: 'ghost', onClick: () => closeModal() },
+      { text: 'Disengage', kind: 'danger', onClick: () => { closeModal(); R.flee(run()); } },
+    ],
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Map
+// ---------------------------------------------------------------------------
+
+function bindMap() {
+  const cv = $('#mapcanvas');
+
+  cv.addEventListener('pointerdown', e => {
+    ui.map.dragging = true;
+    ui.map.dragMoved = 0;
+    ui.map.last = { x: e.clientX, y: e.clientY };
+    cv.setPointerCapture(e.pointerId);
+  });
+
+  cv.addEventListener('pointermove', e => {
+    if (ui.map.dragging) {
+      const dx = e.clientX - ui.map.last.x, dy = e.clientY - ui.map.last.y;
+      ui.map.dragMoved += Math.abs(dx) + Math.abs(dy);
+      ui.map.target.x -= dx / ui.map.cam.zoom;
+      ui.map.target.y -= dy / ui.map.cam.zoom;
+      ui.map.cam.x = ui.map.target.x;
+      ui.map.cam.y = ui.map.target.y;
+      ui.map.last = { x: e.clientX, y: e.clientY };
+    } else if (run()) {
+      const node = ui.map.nodeAt(run().map, e.clientX, e.clientY);
+      if (node !== ui.hoverNode) {
+        ui.hoverNode = node;
+        renderNodeCard(node);
+        if (node) play('hover', { throttle: 90 });
+      }
+    }
+  });
+
+  const endDrag = e => {
+    if (!ui.map.dragging) return;
+    ui.map.dragging = false;
+    try { cv.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    // A drag should never be mistaken for a click on whatever ended up beneath.
+    if (ui.map.dragMoved < 6) {
+      const node = ui.map.nodeAt(run().map, e.clientX, e.clientY);
+      if (node) attemptJump(node);
+    }
+  };
+  cv.addEventListener('pointerup', endDrag);
+  cv.addEventListener('pointercancel', endDrag);
+
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    ui.map.zoomBy(e.deltaY < 0 ? 1.14 : 1 / 1.14);
+  }, { passive: false });
+
+  $('#map-hud').addEventListener('click', e => {
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if (action === 'zoom-in') ui.map.zoomBy(1.25);
+    else if (action === 'zoom-out') ui.map.zoomBy(1 / 1.25);
+    else if (action === 'recentre') ui.map.panTo(U.currentNode(run().map));
+  });
+}
+
+function attemptJump(node) {
   const r = run();
-  const c = r.combat;
-  if (!c) return;
-  if (r.ship.ftlCharge < 1) {
+  if (r.phase !== 'map') return;
+  if (node.id === r.map.currentId) { ui.map.panTo(node); return; }
+  if (!U.canJumpTo(r.map, node.id)) {
     play('error');
-    logLine('FTL drive is still charging.', 'bad');
     return;
   }
-  play('jump');
-  c.playerFlee();
-}
-
-export function renderCombatControls() {
-  const r = run();
-  const inCombat = !!r.combat && !r.combat.over;
-  show($('#combat-controls'), inCombat);
-  show($('#map-controls'), !inCombat);
-
-  if (inCombat) {
-    const c = r.combat;
-    $('#btn-pause').innerHTML = c.paused ? 'Resume <kbd>Space</kbd>' : 'Pause <kbd>Space</kbd>';
-    for (const b of $$('#combat-controls .speed')) {
-      b.classList.toggle('active', !c.paused && Number(b.dataset.speed) === c.speed);
-    }
-    const flee = $('#btn-flee');
-    flee.disabled = r.ship.ftlCharge < 1 || c.combatMustKill;
-    flee.textContent = r.ship.ftlCharge >= 1 ? 'Jump Out' : `FTL ${Math.round(r.ship.ftlCharge * 100)}%`;
-  } else {
-    show($('#btn-distress'), r.fuel <= 0);
-    const meter = $('#ftl-meter');
-    meter.style.setProperty('--ftl', `${Math.round(r.ship.ftlCharge * 100)}%`);
-    meter.classList.toggle('ready', r.ship.ftlCharge >= 1);
-    const label = meter.querySelector('b');
-    if (label) label.textContent = r.ship.ftlCharge >= 1 ? 'FTL READY' : `FTL ${Math.round(r.ship.ftlCharge * 100)}%`;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Event log
-// ---------------------------------------------------------------------------
-
-export function logLine(text, kind = '') {
-  const node = el(`div.logline${kind ? '.' + kind : ''}`, { text });
-  const log = $('#event-log');
-  log.append(node);
-  ui.logLines.push(node);
-  while (ui.logLines.length > 6) ui.logLines.shift().remove();
-  setTimeout(() => {
-    node.classList.add('fade');
-    setTimeout(() => { node.remove(); ui.logLines = ui.logLines.filter(n => n !== node); }, 800);
-  }, 5200);
-}
-
-// ---------------------------------------------------------------------------
-// Star map
-// ---------------------------------------------------------------------------
-
-let mapAnim = null;
-
-export function openStarMap() {
-  const r = run();
-  if (r.combat && !r.combat.over) { play('error'); return; }
-  play('tab');
-
-  const wrap = el('div.starmap-wrap');
-  const canvas = el('canvas', { id: 'starmap', width: '900', height: '480' });
-  wrap.append(canvas);
-
-  const legend = el('div.map-legend', null,
-    legendItem('#4fe3f5', 'You are here'),
-    legendItem('#ffcc5c', 'Can jump to'),
-    legendItem('#5cf59b', 'Sector exit'),
-    legendItem('#b3243c', 'Fleet has arrived'),
-    legendItem('#3d4a6b', 'Already visited'));
-
-  const hint = el('p.map-hint', {
-    text: r.fuel > 0
-      ? 'Click a highlighted beacon to jump. Each jump costs 1 fuel and lets the fleet advance.'
-      : 'No fuel. Close the map and send a distress signal.',
-  });
-
-  const body = el('div', null, wrap, hint, legend);
-
-  const modal = openModal({
-    title: `Sector ${r.sectorIndex + 1} — ${SECTOR_TYPES[r.map.sectorType].name}`,
-    body, wide: true,
-    actions: [
-      atExit(r.map) ? {
-        label: 'Leave Sector', kind: 'primary',
-        onClick: () => { closeModal(); openSectorChoice(); },
-      } : null,
-      { label: 'Close', kind: 'ghost', onClick: () => { stopMapAnim(); closeModal(); } },
-    ].filter(Boolean),
-    onDismiss: () => { stopMapAnim(); closeModal(); },
-  });
-  modal.querySelector('.modal-body').classList.add('map-modal-body');
-
-  let boxes = [];
-  let t = 0;
-  const frame = () => {
-    t += 1 / 60;
-    boxes = render.drawStarMap(canvas, r.map, { t });
-    mapAnim = requestAnimationFrame(frame);
-  };
-  frame();
-
-  canvas.addEventListener('click', e => {
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-    const hit = boxes.find(b => Math.hypot(b.x - x, b.y - y) <= b.r);
-    if (!hit) return;
-    if (!hit.canGo) { play('error'); return; }
-    stopMapAnim();
-    closeModal();
-    doJump(hit.id);
-  });
-
-  canvas.addEventListener('pointermove', e => {
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-    const hit = boxes.find(b => Math.hypot(b.x - x, b.y - y) <= b.r);
-    canvas.style.cursor = hit && hit.canGo ? 'pointer' : 'default';
-  });
-}
-
-function stopMapAnim() {
-  if (mapAnim) cancelAnimationFrame(mapAnim);
-  mapAnim = null;
-}
-
-function legendItem(color, label) {
-  return el('span', null, el('i', { style: { background: color } }), label);
-}
-
-function doJump(beaconId) {
-  const r = run();
-  const confirmJump = game.profile.settings.confirmJump;
-  const beacon = beaconById(r.map, beaconId);
 
   const go = () => {
     play('jump');
     music.duck(0.4, 1.2);
-    const res = R.jump(r, beaconId);
-    if (!res.ok) { play('error'); logLine(res.reason, 'bad'); return; }
-    ui.sceneProp = render.pickSceneProp(new RNG(`${r.seed}-${beaconId}`), beacon.type);
-    render.invalidateNebula();
-    ui.selectedWeapon = null;
-    for (const w of r.ship.weapons) w.targetRoom = null;
-    afterPhaseChange();
+    R.jump(r, node.id);
+    ui.map.panTo(U.currentNode(r.map));
+    syncPhase(true);
   };
 
-  if (confirmJump && beacon.fleet) {
+  const risky = node.threat - r.ship.progress.level >= 4;
+  if (game.profile.settings?.confirmJump || risky) {
+    const lab = threatLabel(node.threat, r.ship.progress.level);
     openModal({
-      title: 'Jump Into The Fleet?',
-      body: 'The Swarm fleet has already reached that beacon. Arriving there means an immediate fight with one of their warships.',
+      title: node.encounterName || 'Jump',
+      body: el('div', null,
+        el('div.event-head', null,
+          el('div.event-scene', null, spriteEl(ENCOUNTER_TYPES[node.type]?.icon || 'node_unknown', 3)),
+          el('div', null,
+            el('p.modal-text.flavour', { text: node.blurb || '' }),
+            el('p.modal-text', { html: `Threat <b style="color:${lab.colour}">${node.threat}</b> — ${lab.text} at your level.` }))),
+        risky ? el('p.warn-line', { text: 'This is well above your weight. Ships do not come back from these.' }) : null),
       actions: [
-        { label: 'Jump Anyway', kind: 'primary', onClick: () => { closeModal(); go(); } },
-        { label: 'Cancel', kind: 'ghost', onClick: () => { closeModal(); openStarMap(); } },
+        { text: 'Stay Put', kind: 'ghost', onClick: () => closeModal() },
+        { text: 'Jump', kind: 'primary', onClick: () => { closeModal(); go(); } },
       ],
     });
-    return;
+  } else {
+    go();
   }
-  go();
 }
 
-function doDistress() {
+function renderNodeCard(node) {
+  const card = $('#node-card');
+  if (!node) { card.hidden = true; return; }
   const r = run();
-  const res = R.sendDistressSignal(r);
-  if (!res.ok) { play('error'); return; }
-  play('distress');
-  showOutcome('Distress Signal', res.outcome, () => {
-    if (r.phase === R.PHASES.COMBAT) enterCombat();
-    else afterPhaseChange();
-  });
+  const lab = threatLabel(node.threat, r.ship.progress.level);
+  const known = node.state !== U.NODE_STATE.UNKNOWN;
+  const reachable = U.canJumpTo(r.map, node.id);
+
+  clear(card);
+  card.hidden = false;
+  card.append(
+    el('div.nc-head', null,
+      spriteEl(node.cleared ? 'node_cleared' : (ENCOUNTER_TYPES[node.type]?.icon || 'node_unknown'), 2),
+      el('div', null,
+        el('div.nc-name', { text: node.cleared ? 'Picked clean' : (node.encounterName || 'Unknown') }),
+        el('div.nc-type', { text: `${ENCOUNTER_TYPES[node.type]?.label || ''} · Ring ${node.ring}` }))),
+    node.cleared ? null : el('div.nc-threat', null,
+      el('span.nc-tnum', { text: String(node.threat), style: { color: lab.colour } }),
+      el('span', { text: lab.text, style: { color: lab.colour } })),
+    known && !node.cleared && node.blurb ? el('p.nc-blurb', { text: node.blurb }) : null,
+    el('div.nc-foot', { text: node.id === r.map.currentId ? 'You are here'
+      : reachable ? 'Click to jump' : 'No route from here' }));
+}
+
+export function renderMapHud() {
+  const r = run();
+  if (!r) return;
+  const legend = $('#map-legend');
+  if (!legend.dataset.built) {
+    legend.dataset.built = '1';
+    const item = (colour, text) => el('span.leg', null,
+      el('i', { style: { background: colour } }), el('span', { text }));
+    legend.append(
+      item('#4fe3f5', 'You are here'),
+      item('#ffcc5c', 'Can jump to'),
+      item('#5a6a91', 'Picked clean'),
+      item('#ff5c72', 'Master Fleet'));
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Phase routing
 // ---------------------------------------------------------------------------
 
-/** Called after any run.js call that may have changed phase. */
-export function afterPhaseChange() {
+/**
+ * Bring the screen in line with the run's phase. Called every frame; only does
+ * work when the phase actually changed, or when `force` is set after an action
+ * that may have re-entered the same phase.
+ */
+export function syncPhase(force = false) {
   const r = run();
-  flushAchievements(r);
-  renderTopbar(); renderSystems(); renderCrew(); renderWeapons(); renderCombatControls();
+  if (!r) return;
+  if (!force && r.phase === ui.lastPhase) return;
+  const prev = ui.lastPhase;
+  ui.lastPhase = r.phase;
+
+  const inAction = r.phase === 'action';
+  show($('#stage-wrap'), inAction);
+  show($('#mapcanvas'), !inAction);
+  show($('#map-hud'), !inAction);
+
+  if (!inAction && prev === 'action') ui.effects.items.length = 0;
 
   switch (r.phase) {
-    case R.PHASES.EVENT: openEvent(); break;
-    case R.PHASES.COMBAT: enterCombat(); break;
-    case R.PHASES.STORE: openStore(); break;
-    case R.PHASES.SECTOR_CHOICE: openSectorChoice(); break;
-    case R.PHASES.GAME_OVER:
-    case R.PHASES.VICTORY: openSummary(); break;
-    default:
-      // On the map: prompt the boss fight in the final sector.
-      if (r.sectorTree.sectors[r.currentSectorId].isFinal) offerBossFight();
+    case 'map':
+      closeModal();
+      ui.map.panTo(U.currentNode(r.map));
+      pushLog(r);
       break;
+    case 'brief': openBrief(); break;
+    case 'debrief': openDebrief(); break;
+    case 'anomaly': openAnomaly(); break;
+    case 'shop': openShop(); break;
+    case 'levelup': openLevelUp(); break;
+    case 'action':
+      closeModal();
+      $('#hud-weapons').dataset.built = '';
+      break;
+    case 'dead': openDeath(); break;
+    case 'victory': openVictory(); break;
   }
-  game.save();
-}
-
-// --- events ----------------------------------------------------------------
-
-function openEvent() {
-  const r = run();
-  const event = R.currentEvent(r);
-  if (!event) { r.phase = R.PHASES.MAP; return; }
-  play('event_choice');
-
-  // A scene plate: the beacon's own icon plus whatever prop is parked in the
-  // background. Without it every encounter is an undifferentiated wall of text.
-  const beacon = beaconById(r.map, r.map.currentId);
-  const scene = el('div.event-scene', null,
-    spriteEl(eventIcon(event, beacon), 3),
-    ui.sceneProp ? spriteEl(ui.sceneProp.sprite, 1) : null);
-
-  const body = el('div', null,
-    el('div.event-head', null, scene, el('p.modal-text.flavour', { text: event.text })),
-    el('div.choice-list', null,
-      ...R.eventChoices(r).map(c =>
-        el('button.btn.choice', {
-          disabled: !c.ok,
-          onclick: () => chooseEvent(c.index),
-        },
-        el('span', { text: c.text }),
-        !c.ok && c.reason ? el('span.creq', { text: c.reason }) : null))));
-
-  openModal({ title: event.title, body, dismissable: false, actions: [] });
-}
-
-/** Pick the most telling icon for an encounter: its own tag, else the beacon's. */
-function eventIcon(event, beacon) {
-  const byType = {
-    hostile: 'icon_skull', distress: 'icon_distress', hazard: 'icon_hazard',
-    repair: 'icon_repair', store: 'icon_shop', exit: 'icon_exit', empty: 'icon_star',
-  };
-  if (event.choices.some(c => c.outcomes.some(o => o.combat))) return 'icon_skull';
-  return byType[beacon?.type] || 'icon_star';
-}
-
-function chooseEvent(index) {
-  const r = run();
-  const res = R.chooseEventOption(r, index);
-  if (!res.ok) { play('error'); return; }
-  play('confirm');
-  closeModal();
-  showOutcome(R.currentEvent(r)?.title || 'Outcome', res.outcome, () => {
-    if (r.phase === R.PHASES.COMBAT) enterCombat();
-    else afterPhaseChange();
-  });
-}
-
-/** Present an outcome's text and its list of effects. */
-function showOutcome(title, outcome, next) {
-  if (!outcome || (!outcome.text && !outcome.effects?.length)) { next(); return; }
-  const body = el('div', null,
-    outcome.text ? el('p.modal-text', { text: outcome.text }) : null,
-    outcome.effects?.length
-      ? el('div.effects', null, ...outcome.effects.map(e =>
-        el(`div.effect.${e.kind || 'neutral'}`, { text: e.text })))
-      : null);
-
-  for (const e of outcome.effects || []) {
-    if (e.kind === 'good') play('purchase', { throttle: 120 });
-    if (e.kind === 'bad') play('system_damage', { throttle: 120 });
-  }
-
-  openModal({
-    title, body,
-    actions: [{ label: 'Continue', kind: 'primary', onClick: () => { closeModal(); next(); } }],
-    onDismiss: () => { closeModal(); next(); },
-  });
   renderTopbar();
 }
 
-// --- combat ----------------------------------------------------------------
-
-function enterCombat() {
-  const r = run();
-  closeModal();
-  play('alarm');
-  music.duck(0.5, 1.6);
-  ui.effects.clear();
-  ui.selectedWeapon = null;
-
-  const c = r.combat;
-  if (!c) { afterPhaseChange(); return; }
-  c.combatMustKill = !!r.combatMeta?.mustKill;
-
-  // Aim everything at their weapons by default so a new player isn't stuck.
-  const target = c.enemy.systems.weapons?.room ?? c.enemy.systems.shields?.room ?? 0;
-  for (const w of r.ship.weapons) {
-    w.autofire = game.profile.settings.autofireDefault !== false;
-    if (w.targetRoom == null) w.targetRoom = target;
-  }
-
-  r.onCombatEvent = handleCombatPresentation;
-  logLine(`${c.enemy.name} — ${c.enemy.className}`, 'bad');
-  renderCombatControls();
-  renderWeapons();
-}
-
-/** Turn combat events into sound, shake and floating numbers. */
-function handleCombatPresentation(type, payload) {
-  const r = run();
-  const frames = ui.frames;
-  const frameFor = side => (side === 'player' ? frames?.player : frames?.enemy);
-
-  const roomCentre = (side, roomId) => {
-    const f = frameFor(side);
-    if (!f) return null;
-    if (!f.layout || (side === 'enemy' && !f.interior)) {
-      return { x: f.x + f.w / 2, y: f.y + f.h / 2 };
-    }
-    const room = f.layout.rooms[roomId];
-    if (!room) return { x: f.x + f.w / 2, y: f.y + f.h / 2 };
-    const s = f.scale || 1;
-    return {
-      x: f.x + (room.x + room.w / 2) * TILE * s,
-      y: f.y + (room.y + room.h / 2) * TILE * s,
-    };
-  };
-
-  switch (type) {
-    case 'weaponFired':
-      play(payload.sfx || 'laser_light', { throttle: 60 });
-      break;
-    case 'hullHit': {
-      play('hull_hit', { throttle: 90 });
-      const p = roomCentre(payload.side, payload.room);
-      if (p) {
-        ui.effects.add('boom', p.x, p.y, { life: 0.5, scale: 2 });
-        ui.effects.add('text', p.x, p.y, { text: `-${payload.damage}`, color: '#ff5c72', life: 1 });
-      }
-      if (payload.side === 'player') ui.shake = Math.min(14, ui.shake + 5 + payload.damage * 2);
-      break;
-    }
-    case 'systemHit': {
-      play('system_damage', { throttle: 90 });
-      const p = roomCentre(payload.side, payload.room);
-      if (p) ui.effects.add('hit', p.x, p.y, { life: 0.4 });
-      break;
-    }
-    case 'shieldHit': {
-      play(payload.superShield ? 'shield_down' : 'shield_hit', { throttle: 70 });
-      const f = frameFor(payload.side);
-      if (f) ui.effects.add('shield', f.x + f.w / 2, f.y + f.h / 2, { life: 0.5, color: payload.superShield ? '#ffcc5c' : '#4fe3f5' });
-      break;
-    }
-    case 'miss': {
-      const p = roomCentre(payload.side, payload.room);
-      if (p) ui.effects.add('text', p.x, p.y, { text: 'MISS', color: '#8494b8', size: 12, life: 0.9 });
-      play('miss', { throttle: 140 });
-      break;
-    }
-    case 'armorBlocked': {
-      const p = roomCentre(payload.side, payload.room);
-      if (p) ui.effects.add('text', p.x, p.y, { text: 'BLOCKED', color: '#5cf59b', size: 12, life: 0.9 });
-      break;
-    }
-    case 'fire':
-      play('fire_start', { throttle: 400 });
-      if (payload.side === 'player') logLine('Fire aboard!', 'bad');
-      break;
-    case 'breach':
-      play('breach', { throttle: 400 });
-      if (payload.side === 'player') logLine('Hull breach!', 'bad');
-      break;
-    case 'crewDied':
-      play('crew_die');
-      logLine(`${payload.crew?.name || 'Someone'} died — ${payload.cause}.`,
-        payload.side === 'player' ? 'bad' : 'good');
-      break;
-    case 'intercepted':
-      play('drone_destroyed', { throttle: 200 });
-      break;
-    case 'teleportOut': case 'teleportIn':
-      play(type === 'teleportOut' ? 'teleport_out' : 'teleport_in');
-      break;
-    case 'cloakOn': play('cloak_on'); break;
-    case 'cloakOff': play('cloak_off'); break;
-    case 'hack': case 'hackLand': play('hack_land'); break;
-    case 'siphon': play('siphon'); break;
-    case 'melee': play('crew_fight', { throttle: payload.throttle || 400 }); break;
-    case 'sabotage': play('system_damage', { throttle: payload.throttle || 600 }); break;
-    case 'asteroidHit': play('asteroid_hit', { throttle: 200 }); break;
-    case 'solarFlare': play('solar_flare', { throttle: 1000 }); break;
-    case 'pulsar': play('ion', { throttle: 900 }); break;
-    case 'enemyFleeing': logLine(`${r.combat.enemy.name} is charging its FTL drive!`, 'bad'); break;
-    case 'shipDestroyed': {
-      const f = frameFor(payload.side);
-      if (f) {
-        for (let i = 0; i < 9; i++) {
-          setTimeout(() => ui.effects.add('boom',
-            f.x + Math.random() * f.w, f.y + Math.random() * f.h,
-            { life: 0.6, scale: 3 }), i * 110);
-        }
-      }
-      play('ship_destroyed');
-      ui.shake = 20;
-      break;
-    }
-    case 'combatEnd':
-      setTimeout(() => onCombatEnd(payload), 900);
-      break;
-    default:
-      break;
+function pushLog(r) {
+  const log = $('#event-log');
+  clear(log);
+  for (const line of r.log.slice(0, 4)) {
+    log.append(el('div.logline', { text: line.text }));
   }
 }
 
-function onCombatEnd(payload) {
+// ---------------------------------------------------------------------------
+// Brief
+// ---------------------------------------------------------------------------
+
+function openBrief() {
   const r = run();
-  r.onCombatEvent = null;
-  renderCombatControls();
+  const enc = r.encounter;
+  const node = r.node;
+  const lab = threatLabel(node?.threat ?? 1, r.ship.progress.level);
 
-  if (payload.outcome === 'victory') {
-    play('victory');
-    const rewards = r.combatRewards || {};
-    const effects = [];
-    if (rewards.scrap) effects.push({ text: `+${rewards.scrap} scrap`, kind: 'good' });
-    if (rewards.fuel) effects.push({ text: `+${rewards.fuel} fuel`, kind: 'good' });
-    if (rewards.missiles) effects.push({ text: `+${rewards.missiles} missiles`, kind: 'good' });
-    if (rewards.droneParts) effects.push({ text: `+${rewards.droneParts} drone parts`, kind: 'good' });
-    if (rewards.weapon) effects.push({ text: `Salvaged ${getWeapon(rewards.weapon).name}`, kind: 'good' });
-    if (rewards.drone) effects.push({ text: `Salvaged ${getDrone(rewards.drone).name}`, kind: 'good' });
-    if (rewards.augment) effects.push({ text: `Salvaged ${getAugment(rewards.augment).name}`, kind: 'good' });
+  const objective = {
+    clear: 'Destroy everything that comes at you.',
+    survive: `Stay alive for ${enc.objective?.seconds ?? 60} seconds.`,
+    reach: 'Fly the passage end to end without breaking up.',
+    boss: 'Destroy the capital ship.',
+    destroy: 'Destroy the marked target.',
+  }[enc.objective?.kind || 'clear'];
 
-    if (r.phase === R.PHASES.VICTORY || r.phase === R.PHASES.GAME_OVER) { afterPhaseChange(); return; }
-
-    showOutcome(payload.captured ? 'Ship Captured' : 'Enemy Destroyed', {
-      text: payload.captured
-        ? 'Their crew are gone and the hull is intact. You strip it for everything worth taking.'
-        : 'The enemy ship breaks apart. Your crew set about collecting what is left.',
-      effects,
-    }, afterPhaseChange);
-  } else if (payload.outcome === 'defeat') {
-    play('defeat');
-    afterPhaseChange();
-  } else {
-    logLine(payload.outcome === 'fled' ? 'Jumped clear.' : 'The enemy escaped.');
-    afterPhaseChange();
-  }
-}
-
-function offerBossFight() {
-  const r = run();
-  if (isModalOpen()) return;
-  const phase = r.bossPhase || 1;
   openModal({
-    title: 'The Swarm Flagship',
+    title: enc.name,
+    dismissable: false,
     body: el('div', null,
-      el('p.modal-text.flavour', {
-        text: phase === 1
-          ? 'It fills the viewport. Every scan you run comes back worse than the last. There is no route around it and nowhere left to run.'
-          : `The flagship is bringing another weapon array online. Phase ${phase} of 3.`,
-      }),
-      el('p.modal-text', { text: 'Repair what you can. When you engage, it does not end until one of you is gone.' })),
-    dismissable: false,
-    actions: [{ label: `Engage — Phase ${phase}`, kind: 'primary', onClick: () => { closeModal(); R.engageBoss(r); enterCombat(); } }],
+      el('div.event-head', null,
+        el('div.event-scene', null,
+          spriteEl(ENCOUNTER_TYPES[enc.type]?.icon || 'node_combat', 3),
+          node?.prop ? spriteEl(node.prop, 1) : null),
+        el('div', null,
+          el('p.modal-text.flavour', { text: enc.intro || enc.blurb }),
+          el('p.modal-text', { html: `<b>Objective:</b> ${objective}` }))),
+      el('div.brief-stats', null,
+        stat('Threat', String(node?.threat ?? 1), lab.colour),
+        stat('Your level', String(r.ship.progress.level)),
+        stat('Hull', `${Math.round(r.ship.hull)}/${r.ship.stats.maxHull}`),
+        stat('Assessment', lab.text, lab.colour))),
+    actions: [
+      { text: 'Ship', kind: 'ghost', onClick: () => openInventory() },
+      { text: 'Engage', kind: 'primary', onClick: () => { closeModal(); play('confirm'); R.beginEncounter(r); syncPhase(true); } },
+    ],
   });
 }
 
-// --- store -----------------------------------------------------------------
+function stat(label, value, colour) {
+  return el('div.bstat', null,
+    el('span.bstat-k', { text: label }),
+    el('span.bstat-v', { text: value, style: colour ? { color: colour } : null }));
+}
 
-function openStore() {
+// ---------------------------------------------------------------------------
+// Debrief
+// ---------------------------------------------------------------------------
+
+function openDebrief() {
   const r = run();
-  play('store_enter');
+  const p = r.pending;
+  if (!p) { R.collectRewards(r); syncPhase(true); return; }
+
+  if (p.fled) {
+    openModal({
+      title: 'Disengaged',
+      dismissable: false,
+      body: el('p.modal-text.flavour', { text: 'You break off and jump clear. The node is still out there, and so is whatever was in it.' }),
+      actions: [{ text: 'Continue', kind: 'primary', onClick: () => { closeModal(); R.collectRewards(r); syncPhase(true); } }],
+    });
+    return;
+  }
+
+  const rows = el('div.reward-rows', null,
+    rewardRow('icon_star', 'Experience', `+${p.xp}`),
+    rewardRow('icon_scrap', 'Credits', `+${p.credits}`),
+    rewardRow('icon_speed', 'Time', `${p.time.toFixed(0)}s`),
+    rewardRow('icon_sys_weapons', 'Accuracy', `${Math.round(p.accuracy * 100)}%`),
+    rewardRow('icon_skull', 'Destroyed', String(p.world.stats.kills)));
+
+  const loot = p.items.length
+    ? el('div', null,
+      el('h4.section-title', { text: 'Salvage' }),
+      el('div.loot-grid', null, ...p.items.map(itemCard)))
+    : null;
+
   openModal({
-    title: 'Trading Post',
-    body: buildStoreBody(),
-    wide: true,
+    title: p.perfect ? `${p.encounter.name} — Untouched` : `${p.encounter.name} — Cleared`,
     dismissable: false,
-    actions: [{ label: 'Depart', kind: 'primary', onClick: () => { closeModal(); R.leaveStore(r); afterPhaseChange(); } }],
-  });
-}
-
-function refreshStore() {
-  const body = $('#modal-body');
-  clear(body).append(buildStoreBody());
-  renderTopbar(); renderSystems(); renderWeapons(); renderCrew();
-}
-
-function buildStoreBody() {
-  const r = run();
-  const store = r.store;
-  if (!store) return el('p.modal-text', { text: 'The dock is empty.' });
-
-  const items = el('div.store-items');
-  store.items.forEach((item, i) => {
-    const details = itemDetails(item);
-    const affordable = r.scrap >= item.cost;
-    const blocked = storeBlockReason(item);
-    const cls = item.sold ? 'sold' : (!affordable || blocked) ? 'cant' : '';
-
-    const row = el(`div.sitem.${cls}`, null,
-      spriteEl(storeIcon(item), 1),
-      el('div', null,
-        el('div.sn', { text: item.name }),
-        el('div.sd', { text: item.sold ? 'Sold' : (blocked || details?.desc || '') })),
-      el('div.sc', { text: `${item.cost}` }));
-
-    if (!item.sold) {
-      row.addEventListener('click', () => {
-        const res = R.buyItem(r, i);
-        if (!res.ok) { play('error'); logLine(res.reason, 'bad'); return; }
+    body: el('div', null, rows, loot),
+    actions: [{
+      text: 'Collect', kind: 'primary',
+      onClick: () => {
+        closeModal();
         play('purchase');
-        flushAchievements(r);
-        refreshStore();
-      });
-    }
-    if (details?.desc) tooltip(row, () => tipContent(item.name, details.desc, [`${item.cost} scrap`]));
-    items.append(row);
-  });
-
-  // --- side panel: resources, repairs, upgrades
-  const side = el('div.store-side');
-
-  side.append(el('h4', { text: 'Repairs' }));
-  const missing = r.ship.maxHull - r.ship.hull;
-  side.append(el('div.buyrow', null,
-    el('span.bname', { text: `Hull ${r.ship.hull}/${r.ship.maxHull}` }),
-    el('span.bcost', { text: `${store.repairPrice}/pt` })));
-  side.append(el('div', { style: { display: 'flex', gap: '6px' } },
-    el('button.btn.btn-small', {
-      text: 'Repair 1', disabled: missing <= 0,
-      onclick: () => doRepair(1),
-    }),
-    el('button.btn.btn-small', {
-      text: 'Repair All', disabled: missing <= 0,
-      onclick: () => doRepair(missing),
-    })));
-
-  side.append(el('h4', { text: 'Supplies' }));
-  for (const [kind, label, price] of [
-    ['fuel', 'Fuel', store.fuelPrice],
-    ['missiles', 'Missiles', store.missilePrice],
-    ['droneParts', 'Drone parts', store.dronePartPrice],
-  ]) {
-    side.append(el('div.buyrow', null,
-      el('span.bname', { text: label }),
-      el('span.bcost', { text: String(price) }),
-      el('button.btn.btn-small', {
-        text: '+1', disabled: r.scrap < price,
-        onclick: () => { const res = R.buyResource(r, kind, 1); play(res.ok ? 'purchase' : 'error'); refreshStore(); },
-      }),
-      el('button.btn.btn-small', {
-        text: '+5', disabled: r.scrap < price * 5,
-        onclick: () => { const res = R.buyResource(r, kind, 5); play(res.ok ? 'purchase' : 'error'); refreshStore(); },
-      })));
-  }
-
-  side.append(el('h4', { text: 'Reactor' }));
-  const reactorCost = reactorUpgradeCost(r.ship.reactor);
-  side.append(el('div.buyrow', null,
-    el('span.bname', { text: `${r.ship.reactor} bars` }),
-    reactorCost == null
-      ? el('span.bcost', { text: 'MAX' })
-      : el('button.btn.btn-small', {
-        text: `+1 · ${reactorCost}`, disabled: r.scrap < reactorCost,
-        onclick: () => {
-          const res = R.upgradeReactor(r);
-          play(res.ok ? 'upgrade' : 'error');
-          refreshStore();
-        },
-      })));
-
-  const upgrades = el('div.upgrade-list');
-  for (const opt of upgradeOptions(r.ship)) {
-    const cant = !opt.atMax && r.scrap < opt.cost;
-    const row = el(`div.uprow.${opt.atMax ? 'maxed' : cant ? 'cant' : ''}`, null,
-      spriteEl(opt.icon, 1),
-      el('span', { text: opt.name }),
-      el('span.ulvl', { text: `L${opt.level}` }),
-      el('span.ucost', { text: opt.atMax ? 'MAX' : String(opt.cost) }));
-    if (!opt.atMax) {
-      row.addEventListener('click', () => {
-        const res = R.upgradeSystem(r, opt.id);
-        if (!res.ok) { play('error'); logLine(res.reason, 'bad'); return; }
-        play('upgrade');
-        flushAchievements(r);
-        refreshStore();
-      });
-    }
-    tooltip(row, () => tipContent(opt.name, opt.desc, [`Level ${opt.level}/${opt.maxLevel}`]));
-    upgrades.append(row);
-  }
-
-  return el('div', null,
-    el('p.modal-text', { text: `You have ${r.scrap} scrap.` }),
-    el('div.store-grid', null,
-      el('div', null, el('h4', { text: 'For Sale', style: { marginBottom: '9px' } }), items),
-      side),
-    el('h4', { text: 'Upgrades', style: { margin: '22px 0 9px' } }),
-    upgrades);
-}
-
-function doRepair(points) {
-  const r = run();
-  const res = R.repairAtStore(r, points);
-  if (!res.ok) { play('error'); logLine(res.reason, 'bad'); return; }
-  play('repair_done');
-  refreshStore();
-}
-
-function storeIcon(item) {
-  switch (item.kind) {
-    case 'weapon': return 'icon_sys_weapons';
-    case 'drone': return 'icon_sys_drones';
-    case 'augment': return 'icon_star';
-    case 'crew': return `crew_${item.id}_idle0`;
-    case 'system': return SYSTEMS[item.id]?.icon || 'icon_power';
-    default: return 'icon_scrap';
-  }
-}
-
-function storeBlockReason(item) {
-  const r = run();
-  const ship = r.ship;
-  if (item.kind === 'weapon' && ship.weapons.length >= ship.weaponSlots) return 'No free weapon slot';
-  if (item.kind === 'drone' && ship.drones.length >= ship.droneSlots) return 'No free drone slot';
-  if (item.kind === 'crew' && S.livingCrew(ship).length >= ship.crewSlots) return 'No room for more crew';
-  if (item.kind === 'augment' && ship.augments.includes(item.id)) return 'Already installed';
-  return null;
-}
-
-// --- sector choice ---------------------------------------------------------
-
-function openSectorChoice() {
-  const r = run();
-  const res = R.openSectorChoice(r);
-  if (!res.ok) { play('error'); logLine(res.reason, 'bad'); return; }
-  play('sector_enter');
-
-  const body = el('div', null,
-    el('p.modal-text', { text: 'Set a course. The fleet will follow either way.' }),
-    el('div.choice-list', null,
-      ...res.choices.map(c => el('button.btn.choice', {
-        onclick: () => {
-          const enter = R.enterSector(r, c.id);
-          if (!enter.ok) { play('error'); logLine(enter.reason, 'bad'); return; }
-          play('jump');
-          render.invalidateNebula();
-          closeModal();
-          afterPhaseChange();
-        },
+        const res = R.collectRewards(r);
+        flushToasts(r);
+        if (res?.levels) play('levelup');
+        syncPhase(true);
       },
-      el('span', { text: `${c.name}${c.isFinal ? ' — THE LAST STAND' : ''}` }),
-      el('span.creq', { text: c.blurb, style: { color: '#8494b8' } })))));
-
-  openModal({ title: 'Choose Your Route', body, dismissable: false, actions: [] });
+    }],
+  });
 }
 
-// --- pause / summary -------------------------------------------------------
+function rewardRow(icon, label, value) {
+  return el('div.reward-row', null,
+    spriteEl(icon, 1),
+    el('span.rr-k', { text: label }),
+    el('span.rr-v', { text: value }));
+}
+
+// ---------------------------------------------------------------------------
+// Anomaly
+// ---------------------------------------------------------------------------
+
+function openAnomaly() {
+  const r = run();
+  const enc = r.encounter;
+
+  if (r.anomalyResult) { showAnomalyResult(); return; }
+
+  const choices = R.anomalyChoices(r);
+  openModal({
+    title: enc.name,
+    dismissable: false,
+    body: el('div', null,
+      el('div.event-head', null,
+        el('div.event-scene', null,
+          spriteEl('node_anomaly', 3),
+          r.node?.prop ? spriteEl(r.node.prop, 1) : null),
+        el('p.modal-text.flavour', { text: enc.text || enc.blurb })),
+      el('div.choice-list', null, ...choices.map(c =>
+        el('button.btn.choice', {
+          disabled: !c.ok,
+          onclick: () => {
+            play('event_choice');
+            R.chooseAnomaly(r, c.index);
+            if (r.phase === 'brief') { syncPhase(true); return; }
+            showAnomalyResult();
+          },
+        },
+        el('span', { text: c.text }),
+        !c.ok && c.reason ? el('span.creq', { text: c.reason }) : null)))),
+    actions: [],
+  });
+}
+
+function showAnomalyResult() {
+  const r = run();
+  const res = r.anomalyResult;
+  if (!res) return;
+  const fx = res.effects || {};
+
+  const lines = [];
+  if (fx.credits) lines.push(rewardRow('icon_scrap', 'Credits', `${fx.credits > 0 ? '+' : ''}${fx.credits}`));
+  if (fx.xp) lines.push(rewardRow('icon_star', 'Experience', `+${fx.xp}`));
+  if (fx.hull) lines.push(rewardRow('icon_hull', 'Hull', `${fx.hull > 0 ? '+' : ''}${Math.round(fx.hull)}`));
+  if (fx.attributePoint) lines.push(rewardRow('icon_power', 'Attribute points', `+${fx.attributePoint}`));
+  if (fx.reveal) lines.push(rewardRow('icon_sys_sensors', 'Beacons revealed', `+${fx.reveal}`));
+
+  openModal({
+    title: r.encounter.name,
+    dismissable: false,
+    body: el('div', null,
+      el('p.modal-text.flavour', { text: res.text }),
+      lines.length ? el('div.reward-rows', null, ...lines) : null,
+      fx.items?.length ? el('div', null,
+        el('h4.section-title', { text: 'Acquired' }),
+        el('div.loot-grid', null, ...fx.items.map(itemCard))) : null),
+    actions: [{
+      text: 'Continue', kind: 'primary',
+      onClick: () => { closeModal(); R.closeAnomaly(r); flushToasts(r); syncPhase(true); },
+    }],
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Shop
+// ---------------------------------------------------------------------------
+
+function openShop() {
+  const r = run();
+  const stock = r.shopStock;
+  if (!stock) { R.leaveShop(r); syncPhase(true); return; }
+  play('store_enter');
+
+  const rebuild = () => {
+    const needsRepair = r.ship.hull < r.ship.stats.maxHull;
+    const body = el('div', null,
+      el('div.shop-head', null,
+        el('span', { html: `Credits: <b>${r.ship.credits}</b>` }),
+        el('span', { html: `Hull: <b>${Math.round(r.ship.hull)}</b>/${r.ship.stats.maxHull}` })),
+
+      el('h4.section-title', { text: 'Repairs' }),
+      el('div.shop-repair', null,
+        stock.repaired
+          ? el('span.shop-done', { text: 'Fully repaired.' })
+          : !needsRepair
+            ? el('span.shop-done', { text: 'No damage to repair.' })
+            : el('button.btn.btn-small', {
+              disabled: r.ship.credits < stock.repairCost,
+              onclick: () => {
+                const res = R.buyRepair(r);
+                play(res.ok ? 'repair_done' : 'error');
+                openShop();
+              },
+            }, el('span', { text: `Full repair — ${stock.repairCost} credits` }))),
+
+      el('h4.section-title', { text: 'For Sale' }),
+      stock.items.length
+        ? el('div.loot-grid', null, ...stock.items.map(item => itemCard(item, {
+          price: item.value,
+          action: 'Buy',
+          disabled: r.ship.credits < item.value,
+          onAction: () => {
+            const res = R.buyItem(r, item.uid);
+            play(res.ok ? 'purchase' : 'error');
+            if (res.ok) toast({ tag: 'Bought', name: item.name, desc: 'Stowed in your hold.' });
+            openShop();
+          },
+        })))
+        : el('p.modal-text.flavour', { text: 'The racks are bare.' }),
+
+      el('h4.section-title', { text: 'Your Hold' }),
+      r.ship.inventory.length
+        ? el('div.loot-grid', null, ...r.ship.inventory.map(item => itemCard(item, {
+          price: sellValue(item),
+          action: 'Sell',
+          onAction: () => { R.sellItem(r, item.uid); play('purchase'); openShop(); },
+          secondaryAction: 'Equip',
+          onSecondary: () => { const res = S.equip(r.ship, item.uid); play(res.ok ? 'upgrade' : 'error'); openShop(); },
+        })))
+        : el('p.modal-text.flavour', { text: 'Your hold is empty.' }));
+
+    openModal({
+      title: r.encounter?.name || 'Trading Post',
+      dismissable: false,
+      body,
+      wide: true,
+      actions: [{
+        text: 'Undock', kind: 'primary',
+        onClick: () => { closeModal(); R.leaveShop(r); flushToasts(r); syncPhase(true); },
+      }],
+    });
+  };
+  rebuild();
+}
+
+// ---------------------------------------------------------------------------
+// Level up
+// ---------------------------------------------------------------------------
+
+function openLevelUp() {
+  const r = run();
+  if (r.ship.progress.unspentPoints <= 0) {
+    if (r.phase === 'levelup') { R.closeLevelUp(r); syncPhase(true); }
+    return;
+  }
+  play('levelup');
+
+  const build = () => {
+    const ship = r.ship;
+    const mods = {};
+    for (const item of Object.values(ship.equipped)) {
+      if (!item) continue;
+      for (const [k, v] of Object.entries(item.mods || {})) mods[k] = (mods[k] || 0) + v;
+    }
+
+    const cards = ATTRIBUTES.map(attr => {
+      const value = ship.progress.attributes[attr.id];
+      const capped = value >= ATTR_CAP;
+      const preview = capped ? [] : previewPoint(ship.progress.attributes, mods, attr.id);
+      return el(`div.attr-card${capped ? '.capped' : ''}`, null,
+        el('div.attr-head', null,
+          spriteEl(attr.icon, 2),
+          el('div', null,
+            el('div.attr-name', { text: attr.name }),
+            el('div.attr-val', { text: capped ? `${value} — maxed` : `${value} → ${value + 1}` }))),
+        el('p.attr-blurb', { text: attr.blurb }),
+        el('div.attr-preview', null, ...preview.slice(0, 4).map(row =>
+          el('div.apreview-row', null,
+            el('span', { text: row.label }),
+            el('span.apv', { text: `${row.from} → ${row.to}`, style: { color: attr.accent } })))),
+        el('button.btn.btn-small.btn-primary', {
+          disabled: capped,
+          onclick: () => {
+            if (!R.spendPoint(r, attr.id)) { play('error'); return; }
+            play('upgrade');
+            renderTopbar();
+            flushToasts(r);
+            if (r.ship.progress.unspentPoints > 0) build();
+            else { closeModal(); syncPhase(true); }
+          },
+        }, el('span', { text: capped ? 'Maxed' : 'Spend a point' })));
+    });
+
+    openModal({
+      title: `Level ${r.ship.progress.level} — ${r.ship.progress.unspentPoints} point${r.ship.progress.unspentPoints === 1 ? '' : 's'} to spend`,
+      dismissable: false,
+      wide: true,
+      body: el('div', null,
+        el('p.modal-text.flavour', { text: 'Refit while you have the chance. Nothing out here gets easier.' }),
+        el('div.attr-grid', null, ...cards)),
+      actions: [],
+    });
+  };
+  build();
+}
+
+// ---------------------------------------------------------------------------
+// Inventory
+// ---------------------------------------------------------------------------
+
+export function openInventory() {
+  const r = run();
+  if (!r) return;
+  play('tab');
+
+  const build = () => {
+    const ship = r.ship;
+    const s = ship.stats;
+
+    const slots = el('div.slot-grid', null, ...SLOTS.map(slot => {
+      const item = ship.equipped[slot.id];
+      return el(`div.slot${item ? '' : '.slot-empty'}`, null,
+        el('div.slot-label', { text: slot.name }),
+        item
+          ? itemCard(item, {
+            compact: true,
+            action: 'Unequip',
+            onAction: () => { const res = S.unequip(ship, slot.id); play(res.ok ? 'toggle' : 'error'); build(); },
+          })
+          : el('div.slot-hollow', { text: 'Empty' }));
+    }));
+
+    const statRows = [
+      ['Hull', `${Math.round(ship.hull)} / ${s.maxHull}`],
+      ['Shield', `${s.maxShield} (+${s.shieldRegen.toFixed(1)}/s)`],
+      ['Energy', `${s.maxEnergy} (+${s.energyRegen.toFixed(1)}/s)`],
+      ['Damage', `${Math.round(s.damageMult * 100)}%`],
+      ['Speed', String(Math.round(s.speed))],
+      ['Cooldowns', `${Math.round(s.cooldownMult * 100)}%`],
+      ['Crit', `${Math.round(s.critChance * 100)}% / ${s.critMult.toFixed(2)}x`],
+      ['Pickup range', String(Math.round(s.pickupRange))],
+    ];
+
+    const body = el('div.inv-wrap', null,
+      el('div.inv-left', null,
+        el('h4.section-title', { text: 'Loadout' }),
+        slots),
+      el('div.inv-right', null,
+        el('h4.section-title', { text: `${ship.name} — Level ${ship.progress.level}` }),
+        el('div.stat-list', null, ...statRows.map(([k, v]) =>
+          el('div.stat-line', null, el('span', { text: k }), el('b', { text: v })))),
+        ship.perk ? el('div.perk-box', null,
+          el('div.perk-name', { text: ship.perk.name }),
+          el('div.perk-desc', { text: ship.perk.desc })) : null,
+        el('h4.section-title', { text: `Hold (${ship.inventory.length}/24)` }),
+        ship.inventory.length
+          ? el('div.loot-grid', null, ...[...ship.inventory]
+            .sort((a, b) => powerScore(b) - powerScore(a))
+            .map(item => itemCard(item, {
+              action: S.isUpgrade(ship, item) ? 'Equip ▲' : 'Equip',
+              highlight: S.isUpgrade(ship, item),
+              onAction: () => {
+                const res = S.equip(ship, item.uid);
+                play(res.ok ? 'upgrade' : 'error');
+                if (!res.ok) toast({ tag: 'Cannot equip', name: res.reason, kind: 'bad' });
+                build();
+              },
+              secondaryAction: 'Jettison',
+              onSecondary: () => { R.sellItem(r, item.uid); play('cancel'); build(); },
+            })))
+          : el('p.modal-text.flavour', { text: 'Nothing stowed.' })));
+
+    openModal({
+      title: 'Ship',
+      wide: true,
+      body,
+      actions: [{ text: 'Close', kind: 'primary', onClick: () => { closeModal(); renderTopbar(); syncPhase(true); } }],
+    });
+  };
+  build();
+}
+
+/** One item, as a card. `opts.action` adds a button. */
+function itemCard(item, opts = {}) {
+  const rar = RARITY_BY_ID[item.rarity] || RARITY_BY_ID.salvaged;
+  const lines = describeItem(item);
+
+  return el(`div.item-card${opts.compact ? '.compact' : ''}${opts.highlight ? '.upgrade' : ''}`, {
+    style: { borderColor: rar.colour },
+  },
+  el('div.ic-head', null,
+    spriteEl(item.icon || 'icon_sys_battery', 1),
+    el('div', null,
+      el('div.ic-name', { text: item.name, style: { color: rar.colour } }),
+      el('div.ic-sub', { text: `${rar.name} · ilvl ${item.level}` }))),
+  el('div.ic-mods', null, ...lines.slice(0, 5).map(t => el('div.ic-mod', { text: t }))),
+  opts.price != null ? el('div.ic-price', { html: `<b>${opts.price}</b> credits` }) : null,
+  opts.action ? el('div.ic-actions', null,
+    el('button.btn.btn-small', {
+      disabled: !!opts.disabled,
+      onclick: opts.onAction,
+    }, el('span', { text: opts.action })),
+    opts.secondaryAction ? el('button.btn.btn-small.btn-ghost', {
+      onclick: opts.onSecondary,
+    }, el('span', { text: opts.secondaryAction })) : null) : null);
+}
+
+// ---------------------------------------------------------------------------
+// Pause, death, victory
+// ---------------------------------------------------------------------------
 
 export function openPauseMenu() {
   const r = run();
-  if (r.combat && !r.combat.over && !r.combat.paused) r.combat.togglePause();
-  play('tab');
-
   openModal({
     title: 'Paused',
-    body: el('div', null,
-      el('p.modal-text', { text: `${r.shipName} · Sector ${r.sectorIndex + 1} · ${duration(r.elapsed)} elapsed` }),
-      el('p.modal-text.flavour', { text: `Seed ${r.seed}` })),
+    body: el('div.pause-body', null,
+      el('p.modal-text.flavour', { text: `${r.ship.name} · Level ${r.ship.progress.level} · Ring ${U.currentNode(r.map).ring}` }),
+      el('p.modal-text', { text: `Seed ${r.seed}` })),
     actions: [
-      { label: 'Resume', kind: 'primary', onClick: () => { closeModal(); renderCombatControls(); } },
-      { label: 'Sound & Settings', kind: 'ghost', onClick: () => { closeModal(); game.openSettings(); } },
-      { label: 'How To Play', kind: 'ghost', onClick: () => { closeModal(); game.showHelp(); } },
-      { label: 'Abandon Run', kind: 'danger', onClick: confirmAbandon },
+      { text: 'Abandon Run', kind: 'danger', onClick: () => confirmAbandon() },
+      { text: 'Ship', kind: 'ghost', onClick: () => openInventory() },
+      { text: 'Sound & Settings', kind: 'ghost', onClick: () => game.openSettings() },
+      { text: 'Resume', kind: 'primary', onClick: () => closeModal() },
     ],
   });
 }
 
 function confirmAbandon() {
   openModal({
-    title: 'Abandon This Run?',
-    body: 'Your ship, crew and cargo will be lost. Unlocks and achievements are kept.',
+    title: 'Abandon this run?',
+    body: el('p.modal-text', { text: 'The run ends here and the ship is lost. This cannot be undone.' }),
     actions: [
-      {
-        label: 'Abandon', kind: 'danger',
-        onClick: () => {
-          const r = run();
-          R.endRun(r, false, 'You abandoned the run.');
-          closeModal();
-          afterPhaseChange();
-        },
-      },
-      { label: 'Keep Going', kind: 'primary', onClick: () => { closeModal(); openPauseMenu(); } },
+      { text: 'Keep Going', kind: 'ghost', onClick: () => openPauseMenu() },
+      { text: 'Abandon', kind: 'danger', onClick: () => { closeModal(); game.endRun('abandoned'); } },
     ],
   });
 }
 
-function openSummary() {
+function openDeath() {
   const r = run();
-  const won = !!r.won;
-  play(won ? 'victory' : 'defeat');
+  play('defeat');
   music.duck(0.3, 3);
-
-  const stats = [
-    ['Sector', `${r.sectorIndex + 1}/8`],
-    ['Ships destroyed', r.stats.shipsDestroyed],
-    ['Beacons', r.stats.beacons],
-    ['Scrap earned', r.stats.scrapEarned],
-    ['Crew lost', r.stats.crewLost],
-    ['Time', duration(r.elapsed)],
-  ];
-
-  const body = el('div', null,
-    el(`div.summary-hero.${won ? 'win' : 'loss'}`, null,
-      el('div.verdict', { text: won ? 'Victory' : 'Run Over' }),
-      el('div.cause', { text: r.cause || '' }),
-      el('div.score', { text: String(r.score) }),
-      el('div.score-label', { text: 'Final score' })),
-    el('div.summary-stats', null,
-      ...stats.map(([label, value]) =>
-        el('div.s', null, el('div.sv', { text: String(value) }), el('div.sl', { text: label })))));
-
   openModal({
-    title: won ? 'The Swarm Is Broken' : 'End Of The Line',
-    body, dismissable: false,
+    title: `${r.ship.name} — Lost`,
+    dismissable: false,
+    body: el('div', null,
+      el('p.modal-text.flavour', { text: 'The hull gives out. Whatever is left of you keeps going in the direction you were pointed.' }),
+      el('div.summary-stats', null, ...runSummaryRows(r))),
+    actions: [{ text: 'Back To Title', kind: 'primary', onClick: () => { closeModal(); game.endRun('death'); } }],
+  });
+}
+
+function openVictory() {
+  const r = run();
+  play('victory');
+  openModal({
+    title: 'The Master Fleet Is Broken',
+    dismissable: false,
+    body: el('div', null,
+      el('p.modal-text.flavour', { text: 'The last of them comes apart in the dark. Nothing is hunting you now. The map is still out there, and most of it you have never seen.' }),
+      el('div.summary-stats', null, ...runSummaryRows(r))),
     actions: [
-      { label: 'To The Hangar', kind: 'primary', onClick: () => { closeModal(); game.toHangar(); } },
-      { label: 'Main Menu', kind: 'ghost', onClick: () => { closeModal(); game.toTitle(); } },
+      { text: 'Keep Exploring', kind: 'ghost', onClick: () => { closeModal(); game.recordVictory(); R.continueAfterVictory(r); syncPhase(true); } },
+      { text: 'End The Run', kind: 'primary', onClick: () => { closeModal(); game.recordVictory(); game.endRun('victory'); } },
     ],
   });
+}
 
-  flushAchievements(r);
+function runSummaryRows(r) {
+  const s = r.stats;
+  const mins = Math.floor(r.elapsed / 60);
+  return [
+    stat('Level reached', String(r.ship.progress.level)),
+    stat('Deepest ring', String(s.deepestRing)),
+    stat('Nodes cleared', String(s.nodesCleared)),
+    stat('Ships destroyed', String(s.kills)),
+    stat('Capital ships', String(s.bossesKilled)),
+    stat('Time in combat', `${mins}m`),
+  ];
+}
+
+/** Surface any achievements earned since the last check. */
+export function flushToasts(r) {
+  for (const a of R.drainAchievements(r)) {
+    toast({ tag: 'Achievement', name: a.name, desc: a.desc });
+    play('achievement');
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Frame
+// Per-frame
 // ---------------------------------------------------------------------------
 
-let lastPanelRefresh = 0;
-
-/** Called every animation frame by main.js. */
 export function frame(dt, t) {
   const r = run();
   if (!r) return;
 
-  const canvas = $('#stage');
-  const size = render.resizeStage(canvas);
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, size.w, size.h);
-
-  const combat = r.combat && !r.combat.over ? r.combat : null;
-  const enemy = combat ? combat.enemy : null;
-  const sensors = r.ship.systems.sensors;
-  const seeInside = !!enemy && (
-    enemy.isBoss
-    || (sensors && effectiveLevel(sensors) >= 2 && !r.map.nebula)
-    || r.ship.crew.some(c => !c.dead && getRace(c.race).traits.telepathy)
-  );
-
-  ui.frames = render.layoutFrames(r.ship, enemy, size.w, size.h, seeInside);
-
-  ctx.save();
-  if (ui.shake > 0) {
-    ctx.translate((Math.random() - 0.5) * ui.shake, (Math.random() - 0.5) * ui.shake);
-    ui.shake = Math.max(0, ui.shake - dt * 34);
+  if (r.phase === 'action' && r.world) {
+    renderCombatHud();
+  } else {
+    ui.map.update(dt);
+    ui.map.draw(r.map, {
+      level: r.ship.progress.level,
+      reachable: r.phase === 'map' ? U.reachable(r.map) : [],
+      showAllThreat: !!r.ship.stats.alwaysRevealThreat,
+    });
+    renderMapHud();
   }
-
-  render.drawSceneProp(ctx, ui.sceneProp, size.w, size.h, t);
-
-  const targetRooms = r.ship.weapons.filter(w => w.powered && w.targetRoom != null).map(w => w.targetRoom);
-
-  render.drawShipInterior(ctx, r.ship, ui.frames.player, t, {
-    selectedCrew: ui.selectedCrew,
-    hoverRoom: ui.hoverShip === 'player' ? ui.hoverRoom : null,
-    boarders: combat ? combat.enemyBoarders : [],
-  });
-  drawShipLabel(ctx, r.ship, ui.frames.player, r.shipName);
-
-  if (enemy && ui.frames.enemy) {
-    if (seeInside) {
-      render.drawShipInterior(ctx, enemy, ui.frames.enemy, t, {
-        hoverRoom: ui.hoverShip === 'enemy' ? ui.hoverRoom : null,
-        targetRooms,
-        boarders: combat ? combat.boarders : [],
-      });
-    } else {
-      render.drawShipExterior(ctx, enemy, ui.frames.enemy, t);
-      render.drawShieldBubble(ctx, enemy, ui.frames.enemy, t);
-    }
-    drawShipLabel(ctx, enemy, ui.frames.enemy, `${enemy.name}`);
-  }
-
-  if (combat) {
-    render.drawProjectiles(ctx, combat, ui.frames);
-    render.drawBeams(ctx, combat, ui.frames);
-  }
-
-  ui.effects.update(dt);
-  ui.effects.draw(ctx);
-  ctx.restore();
-
-  // Panels don't need 60fps; refreshing them a few times a second is plenty
-  // and keeps the DOM churn off the frame budget.
-  if (t - lastPanelRefresh > 0.2) {
-    lastPanelRefresh = t;
-    renderTopbar();
-    renderSystems();
-    renderCrew();
-    renderWeapons();
-    renderCombatControls();
-  }
-}
-
-function drawShipLabel(ctx, ship, frame, name) {
-  ctx.save();
-  ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
-  ctx.textAlign = 'center';
-  ctx.fillStyle = ship.isEnemy ? '#ff5c72' : '#4fe3f5';
-  ctx.fillText(name.toUpperCase(), frame.x + frame.w / 2, frame.y - 22);
-
-  // Hull bar.
-  const bw = Math.min(frame.w, 190);
-  const bx = frame.x + frame.w / 2 - bw / 2;
-  const by = frame.y - 15;
-  const frac = Math.max(0, ship.hull / ship.maxHull);
-
-  // The player's hull is a number in the top bar; give the enemy one too, so
-  // you can judge "one more volley?" instead of eyeballing a bar.
-  if (ship.isEnemy) {
-    ctx.textAlign = 'left';
-    ctx.fillStyle = frac > 0.5 ? '#5cf59b' : frac > 0.25 ? '#ffcc5c' : '#ff5c72';
-    ctx.fillText(`${Math.max(0, Math.ceil(ship.hull))}/${ship.maxHull}`, bx + bw + 8, by + 5);
-    ctx.textAlign = 'center';
-  }
-  ctx.fillStyle = 'rgba(0,0,0,.6)';
-  ctx.fillRect(bx, by, bw, 5);
-  ctx.fillStyle = frac > 0.5 ? '#22b35c' : frac > 0.25 ? '#d98c1f' : '#b3243c';
-  ctx.fillRect(bx, by, bw * frac, 5);
-  ctx.strokeStyle = 'rgba(132,148,184,.4)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, 4);
-  ctx.restore();
-}
-
-export function resetForNewRun() {
-  ui.selectedCrew = null;
-  ui.selectedWeapon = null;
-  ui.effects.clear();
-  ui.shake = 0;
-  ui.sceneProp = null;
-  for (const n of ui.logLines) n.remove();
-  ui.logLines = [];
-  render.invalidateNebula();
 }

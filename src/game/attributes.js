@@ -27,7 +27,7 @@ export const ATTRIBUTES = [
   {
     id: 'reactor', name: 'Reactor', icon: 'icon_power', accent: '#ffcc5c',
     blurb: 'Energy capacity and regeneration. Firing and dashing both draw on it.',
-    perPoint: '+16 max energy, +2.2 energy/sec',
+    perPoint: '+16 max energy, +1.9 energy/sec',
   },
   {
     id: 'thrusters', name: 'Thrusters', icon: 'icon_sys_engines', accent: '#c07ef5',
@@ -151,7 +151,7 @@ export function deriveStats(attributes, gearMods = {}) {
     fireRateMult: mul('fireRatePct'),
 
     maxEnergy: Math.max(10, Math.round((50 + 16 * a.reactor + add('energy') * sysScale) * mul('energyPct'))),
-    energyRegen: (10 + 2.2 * a.reactor + add('energyRegen') * sysScale) * mul('energyRegenPct'),
+    energyRegen: (7 + 1.9 * a.reactor + add('energyRegen') * sysScale) * mul('energyRegenPct'),
     energyCostMult: Math.max(0.35, 1 - add('energyCost')),
 
     speed: (200 + 13 * a.thrusters + add('speed') * sysScale) * mul('speedPct'),

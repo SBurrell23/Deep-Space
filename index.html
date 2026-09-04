@@ -4,9 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Deep Space</title>
-<meta name="description" content="Deep Space — a roguelike starship simulator. Command a ship, crew and reactor through procedurally generated sectors while a hostile fleet closes in behind you.">
+<meta name="description" content="Deep Space — a roguelike space shooter. Fly a ship out through a fogged web of star systems, levelling as you go, until you are strong enough to face the Master Fleet.">
 <meta name="theme-color" content="#05070f">
 <link rel="stylesheet" href="styles/main.css">
+<link rel="stylesheet" href="styles/action.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%2305070f'/><rect x='2' y='7' width='9' height='3' fill='%234fe3f5'/><rect x='11' y='6' width='3' height='5' fill='%2317a2b8'/><rect x='4' y='4' width='4' height='2' fill='%238494b8'/><rect x='4' y='11' width='4' height='2' fill='%238494b8'/></svg>">
 </head>
 <body>
@@ -20,7 +21,7 @@
   <section class="screen" id="screen-title" data-screen="title">
     <div class="title-wrap">
       <h1 class="game-title"><span>DEEP</span><span class="accent">SPACE</span></h1>
-      <p class="tagline">The fleet is behind you. It has always been behind you.</p>
+      <p class="tagline">Out past the last relay, the map stops and the fleet begins.</p>
       <nav class="menu" id="title-menu">
         <button class="btn btn-primary" data-action="continue" id="btn-continue" hidden>
           <span class="btn-label">Continue Run</span>
@@ -33,7 +34,7 @@
         <button class="btn" data-action="help">How To Play</button>
         <button class="btn" data-action="settings">Sound &amp; Settings</button>
       </nav>
-      <p class="version">v1.0 &middot; vanilla JavaScript &middot; no engine, no build step</p>
+      <p class="version">v2.0 &middot; vanilla JavaScript &middot; no engine, no build step</p>
     </div>
   </section>
 
@@ -45,7 +46,7 @@
       <div class="head-right"><span id="hangar-unlocked" class="pill"></span></div>
     </header>
     <div class="hangar">
-      <ul class="ship-list" id="ship-list" role="listbox" aria-label="Available ships"></ul>
+      <ul class="ship-list" id="ship-list" role="listbox" aria-label="Available hulls"></ul>
       <div class="ship-detail" id="ship-detail"></div>
     </div>
   </section>
@@ -60,7 +61,7 @@
     <div class="scroll-pane"><div class="ach-grid" id="ach-grid"></div></div>
   </section>
 
-  <!-- ================= STATS ================= -->
+  <!-- ================= RECORDS ================= -->
   <section class="screen" id="screen-stats" data-screen="stats" hidden>
     <header class="screen-head">
       <button class="btn btn-ghost" data-action="back">&larr; Back</button>
@@ -88,56 +89,59 @@
   <!-- ================= GAME ================= -->
   <section class="screen screen-game" id="screen-game" data-screen="game" hidden>
 
-    <!-- Top resource bar -->
     <header class="topbar" id="topbar">
       <div class="topbar-left">
         <button class="btn btn-ghost btn-icon" data-action="pause-menu" title="Menu (Esc)">&#9776;</button>
-        <span class="res" id="res-scrap" title="Scrap"><i data-icon="icon_scrap"></i><b>0</b></span>
-        <span class="res" id="res-fuel" title="Fuel"><i data-icon="icon_fuel"></i><b>0</b></span>
-        <span class="res" id="res-missiles" title="Missiles"><i data-icon="icon_missile"></i><b>0</b></span>
-        <span class="res" id="res-drones" title="Drone parts"><i data-icon="icon_dronepart"></i><b>0</b></span>
+        <span class="res" id="res-credits" title="Credits"><i data-icon="icon_scrap"></i><b>0</b></span>
+        <span class="levelchip" id="level-chip" title="Level and experience">
+          <b id="level-num">1</b>
+          <span class="xpbar"><span id="xp-fill"></span></span>
+        </span>
+        <span class="pointpip" id="point-pip" hidden title="Unspent attribute points">+<b id="point-count">0</b></span>
       </div>
       <div class="topbar-mid">
-        <span class="sector-label" id="sector-label">Sector 1</span>
-        <span class="sector-type" id="sector-type"></span>
+        <span class="node-label" id="node-label">Deep Space</span>
+        <span class="node-sub" id="node-sub"></span>
       </div>
       <div class="topbar-right">
         <span class="hull-readout" id="hull-readout"></span>
+        <button class="btn btn-ghost btn-small" data-action="inventory" title="Ship &amp; loadout (I)">Ship</button>
         <button class="btn btn-ghost btn-icon" data-action="settings" title="Sound &amp; settings">&#9834;</button>
       </div>
     </header>
 
-    <!-- Main play area: canvas + side panels -->
-    <div class="play-area">
-      <canvas id="stage"></canvas>
+    <div class="play-area" id="play-area">
+      <!-- Action. The wrapper holds the field aspect so the HUD can pin to the
+           play field itself rather than to the whole play area. -->
+      <div class="stage-wrap" id="stage-wrap" hidden>
+        <canvas id="stage"></canvas>
+      <!-- Universe map -->
+      <canvas id="mapcanvas"></canvas>
 
-      <!-- Left: ship systems + power -->
-      <aside class="panel panel-left" id="panel-systems">
-        <div class="panel-title">Systems <span class="reactor-readout" id="reactor-readout"></span></div>
-        <div class="system-list" id="system-list"></div>
-        <div class="panel-title">Crew</div>
-        <div class="crew-list" id="crew-list"></div>
-      </aside>
-
-      <!-- Bottom: weapons + drones -->
-      <div class="weapon-bar" id="weapon-bar"></div>
-
-      <!-- Combat-only controls -->
-      <div class="combat-controls" id="combat-controls" hidden>
-        <button class="btn btn-small" data-action="toggle-pause" id="btn-pause">Pause <kbd>Space</kbd></button>
-        <div class="speed-group" role="group" aria-label="Game speed">
-          <button class="btn btn-small speed" data-speed="1">1&times;</button>
-          <button class="btn btn-small speed" data-speed="2">2&times;</button>
-          <button class="btn btn-small speed" data-speed="4">4&times;</button>
+        <!-- Combat HUD, drawn in DOM over the stage -->
+        <div class="combat-hud" id="combat-hud">
+        <div class="hud-bars">
+          <div class="bar bar-hull"><i></i><span id="bar-hull"></span><b id="hull-num"></b></div>
+          <div class="bar bar-shield"><i></i><span id="bar-shield"></span><b id="shield-num"></b></div>
+          <div class="bar bar-energy"><i></i><span id="bar-energy"></span><b id="energy-num"></b></div>
         </div>
-        <button class="btn btn-small" data-action="flee" id="btn-flee">Jump Out</button>
+        <div class="hud-objective" id="hud-objective"></div>
+        <div class="hud-weapons" id="hud-weapons"></div>
+        <div class="hud-abilities" id="hud-abilities"></div>
+        <div class="hud-dash" id="hud-dash"></div>
+        <button class="btn btn-small btn-danger hud-flee" data-action="flee" title="Disengage (you keep nothing)">Disengage</button>
+        </div>
       </div>
 
-      <!-- Map-only controls -->
-      <div class="map-controls" id="map-controls">
-        <button class="btn btn-small" data-action="open-map" id="btn-map">Star Map <kbd>M</kbd></button>
-        <button class="btn btn-small" data-action="distress" id="btn-distress" hidden>Send Distress Signal</button>
-        <span class="ftl-meter" id="ftl-meter" title="FTL drive charge"><span></span><b>FTL</b></span>
+      <!-- Map HUD -->
+      <div class="map-hud" id="map-hud">
+        <div class="map-legend" id="map-legend"></div>
+        <div class="map-controls">
+          <button class="btn btn-small" data-action="zoom-in" title="Zoom in">+</button>
+          <button class="btn btn-small" data-action="zoom-out" title="Zoom out">&minus;</button>
+          <button class="btn btn-small" data-action="recentre" title="Centre on your position">Centre</button>
+        </div>
+        <div class="node-card" id="node-card" hidden></div>
       </div>
 
       <div class="event-log" id="event-log" aria-live="polite"></div>
@@ -189,7 +193,7 @@
       </div>
       <div class="setting-row setting-check">
         <input type="checkbox" id="opt-autofire">
-        <label for="opt-autofire">Weapons autofire by default</label>
+        <label for="opt-autofire">Hold-to-fire (uncheck for autofire)</label>
       </div>
       <div class="setting-row setting-check">
         <input type="checkbox" id="opt-hints">

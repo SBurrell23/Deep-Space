@@ -222,6 +222,9 @@ export class Spawner {
 
   /** True when the script is finished and nothing is left alive. */
   isComplete(world) {
-    return this.exhausted && world.enemies.length === 0 && world.pendingSpawns.length === 0;
+    // Ignore corpses: compact() does not run until the end of the frame.
+    return this.exhausted
+      && !world.enemies.some(e => !e.dead)
+      && world.pendingSpawns.length === 0;
   }
 }

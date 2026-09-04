@@ -2,154 +2,155 @@ import { describe, it, assert } from './harness.js';
 import * as pixel from '../src/ui/pixel.js';
 import { CREW_ART } from '../src/ui/art-crew.js';
 import { SHIP_ART } from '../src/ui/art-ships.js';
-import { RACE_IDS } from '../src/game/crew.js';
-import { ALL_SYSTEM_IDS, SYSTEMS } from '../src/game/systems.js';
-import { SHIP_IDS, SHIPS } from '../src/game/ships.js';
-import { ENEMY_CLASSES } from '../src/game/enemy.js';
-import { BEACON_TYPES } from '../src/game/sector.js';
+import { SHMUP_ART } from '../src/ui/art-shmup.js';
+import { ENEMIES, ENEMY_IDS } from '../src/game/enemies.js';
+import { WEAPONS, WEAPON_IDS } from '../src/game/weapons.js';
+import { SHIPS, SHIP_IDS } from '../src/game/ships.js';
+import { ENCOUNTER_TYPES } from '../src/game/encounters/index.js';
+import { ATTRIBUTES } from '../src/game/attributes.js';
+import { SLOTS } from '../src/game/items.js';
+import { ACHIEVEMENTS } from '../src/game/achievements.js';
+import { TERRAIN_STYLES } from '../src/game/terrain.js';
 
-/** Fraction of a sprite's pixels that aren't transparent. */
-function fill(name) {
-  const d = pixel.get(name);
-  let n = 0;
-  for (const row of d.rows) for (const ch of row) if (ch !== '.' && ch !== ' ') n++;
-  return n / (d.w * d.h);
-}
+const BAGS = { 'art-crew': CREW_ART, 'art-ships': SHIP_ART, 'art-shmup': SHMUP_ART };
 
-function shades(name) {
-  const d = pixel.get(name);
-  const used = new Set();
-  for (const row of d.rows) for (const ch of row) if (ch !== '.' && ch !== ' ') used.add(ch);
-  return used.size;
-}
-
-describe('pixel engine', () => {
-  it('validates row lengths', () => {
-    assert.throws(() => pixel.normalize('t', { pal: { a: '#fff' }, rows: ['aa', 'a'] }));
+describe('sprite data', () => {
+  it('registers a large library', () => {
+    assert.greater(pixel.names().length, 200);
   });
 
-  it('validates palette coverage', () => {
-    assert.throws(() => pixel.normalize('t', { pal: {}, rows: ['a'] }));
-  });
-
-  it('accepts well-formed art and derives its size', () => {
-    const d = pixel.normalize('t', { pal: { a: '#fff' }, rows: ['.a.', 'aaa'] });
-    assert.equal(d.w, 3);
-    assert.equal(d.h, 2);
-  });
-
-  it('measures a registered sprite at scale', () => {
-    const m = pixel.measure('ship_ext_kestrel', 3);
-    assert.equal(m.w, 192);
-    assert.equal(m.h, 120);
-  });
-});
-
-describe('art coverage', () => {
-  it('registers a large sprite library', () => {
-    assert.greater(pixel.names().length, 130);
-  });
-
-  it('has four animation frames and a death pose for every race', () => {
-    for (const race of RACE_IDS) {
-      for (const frame of ['idle0', 'idle1', 'walk0', 'walk1', 'dead']) {
-        const name = `crew_${race}_${frame}`;
-        assert.ok(pixel.get(name), `missing sprite ${name}`);
-        assert.deepEqual(
-          [pixel.get(name).w, pixel.get(name).h], [12, 12],
-          `${name} should be 12x12`,
-        );
+  it('every sprite is rectangular with a complete palette', () => {
+    for (const [file, bag] of Object.entries(BAGS)) {
+      for (const [name, def] of Object.entries(bag)) {
+        const w = def.rows[0].length;
+        for (let y = 0; y < def.rows.length; y++) {
+          assert.equal(def.rows[y].length, w, `${file}/${name} row ${y} is ragged`);
+          for (const ch of def.rows[y]) {
+            if (ch === '.' || ch === ' ') continue;
+            assert.ok(def.pal[ch], `${file}/${name} uses "${ch}" with no palette entry`);
+          }
+        }
       }
     }
-  });
-
-  it('has an icon for every system', () => {
-    for (const id of ALL_SYSTEM_IDS) {
-      const name = SYSTEMS[id].icon;
-      assert.ok(pixel.get(name), `system ${id} references missing icon ${name}`);
-    }
-  });
-
-  it('has an icon for every beacon type', () => {
-    for (const b of Object.values(BEACON_TYPES)) {
-      assert.ok(pixel.get(b.icon), `beacon ${b.id} references missing icon ${b.icon}`);
-    }
-  });
-
-  it('has an exterior for every player hull', () => {
-    for (const id of SHIP_IDS) {
-      const name = SHIPS[id].sprite;
-      assert.ok(pixel.get(name), `ship ${id} references missing sprite ${name}`);
-      const d = pixel.get(name);
-      assert.deepEqual([d.w, d.h], [64, 40], `${name} should be 64x40`);
-    }
-  });
-
-  it('has an exterior for every enemy class, plus the flagship', () => {
-    for (const cls of Object.values(ENEMY_CLASSES)) {
-      assert.ok(pixel.get(cls.sprite), `enemy ${cls.id} references missing sprite ${cls.sprite}`);
-    }
-    assert.ok(pixel.get('enemy_boss'));
-  });
-
-  it('has the full explosion and impact animations', () => {
-    for (let i = 0; i < 5; i++) assert.ok(pixel.get(`fx_boom${i}`), `missing fx_boom${i}`);
-    for (let i = 0; i < 3; i++) assert.ok(pixel.get(`fx_hit${i}`), `missing fx_hit${i}`);
-    for (let i = 0; i < 3; i++) assert.ok(pixel.get(`fx_teleport${i}`), `missing fx_teleport${i}`);
-  });
-});
-
-describe('art quality', () => {
-  it('draws real art, not flat blobs', () => {
-    // Every ship should use several shades; a 2-colour hull reads as a
-    // placeholder rather than a shaded model.
-    const flat = SHIP_IDS
-      .map(id => SHIPS[id].sprite)
-      .filter(name => shades(name) < 4);
-    assert.deepEqual(flat, [], 'every hull needs at least 4 shades');
-  });
-
-  it('leaves no sprite accidentally empty', () => {
-    const empty = pixel.names().filter(n => fill(n) < 0.05);
-    assert.deepEqual(empty, [], 'these sprites are almost entirely transparent');
-  });
-
-  it('fills icons enough to read at small sizes', () => {
-    const thin = pixel.names()
-      .filter(n => n.startsWith('icon_'))
-      .filter(n => fill(n) < 0.2);
-    assert.deepEqual(thin, [], 'these icons are too sparse to read');
-  });
-
-  it('gives each ship a distinct silhouette', () => {
-    // Compare transparency masks: two hulls sharing an outline would be a
-    // copy-paste, not a design.
-    const mask = name => pixel.get(name).rows.map(r => r.replace(/[^.]/g, '#')).join('\n');
-    const seen = new Map();
-    for (const id of SHIP_IDS) {
-      const m = mask(SHIPS[id].sprite);
-      assert.notOk(seen.has(m), `${id} shares a silhouette with ${seen.get(m)}`);
-      seen.set(m, id);
-    }
-  });
-
-  it('progresses the explosion frames rather than repeating one', () => {
-    const fills = [0, 1, 2, 3, 4].map(i => fill(`fx_boom${i}`));
-    assert.greater(Math.max(...fills), Math.min(...fills) * 1.5,
-      'explosion frames should visibly change');
-    assert.greater(fills[2], fills[0], 'the blast should grow before it fades');
   });
 
   it('uses only valid hex colours', () => {
-    for (const name of pixel.names()) {
-      for (const [ch, hex] of Object.entries(pixel.get(name).pal)) {
-        assert.ok(/^#[0-9a-fA-F]{6}$/.test(hex), `${name} palette "${ch}" is not a hex colour: ${hex}`);
+    for (const [file, bag] of Object.entries(BAGS)) {
+      for (const [name, def] of Object.entries(bag)) {
+        for (const [ch, colour] of Object.entries(def.pal)) {
+          assert.ok(/^#[0-9a-fA-F]{6}$/.test(colour), `${file}/${name}.${ch} = "${colour}"`);
+        }
       }
     }
   });
 
-  it('exports what it registers', () => {
-    for (const name of Object.keys(CREW_ART)) assert.ok(pixel.get(name), `${name} exported but not registered`);
-    for (const name of Object.keys(SHIP_ART)) assert.ok(pixel.get(name), `${name} exported but not registered`);
+  it('has no accidentally empty sprites', () => {
+    for (const [file, bag] of Object.entries(BAGS)) {
+      for (const [name, def] of Object.entries(bag)) {
+        const total = def.rows.length * def.rows[0].length;
+        const filled = def.rows.join('').split('').filter(c => c !== '.' && c !== ' ').length;
+        assert.greater(filled / total, 0.04, `${file}/${name} is ${Math.round(filled / total * 100)}% filled`);
+      }
+    }
+  });
+
+  it('sizes the sprite classes consistently', () => {
+    const expect = (prefix, w, h) => {
+      for (const name of pixel.names().filter(n => n.startsWith(prefix))) {
+        const def = pixel.get(name);
+        assert.equal(def.w, w, `${name} is ${def.w}px wide`);
+        assert.equal(def.h, h, `${name} is ${def.h}px tall`);
+      }
+    };
+    expect('ship_ext_', 64, 40);
+    expect('sw_', 16, 16);
+    expect('mid_', 32, 24);
+    expect('node_', 14, 14);
+    expect('ter_', 16, 16);
+  });
+});
+
+describe('sprite references', () => {
+  const present = (name) => !!pixel.get(name);
+
+  it('every enemy archetype has its sprite', () => {
+    for (const id of ENEMY_IDS) {
+      assert.ok(present(ENEMIES[id].sprite), `${id} references missing sprite ${ENEMIES[id].sprite}`);
+    }
+  });
+
+  it('every weapon has its projectile and icon', () => {
+    for (const id of WEAPON_IDS) {
+      const w = WEAPONS[id];
+      assert.ok(present(w.sprite), `${id} references missing sprite ${w.sprite}`);
+      if (w.icon) assert.ok(present(w.icon), `${id} references missing icon ${w.icon}`);
+    }
+  });
+
+  it('every hull has its exterior', () => {
+    for (const id of SHIP_IDS) {
+      assert.ok(present(SHIPS[id].sprite), `${id} references missing sprite ${SHIPS[id].sprite}`);
+    }
+  });
+
+  it('every encounter type has a map icon', () => {
+    for (const [type, def] of Object.entries(ENCOUNTER_TYPES)) {
+      assert.ok(present(def.icon), `type "${type}" references missing icon ${def.icon}`);
+    }
+  });
+
+  it('every attribute, slot and achievement has an icon', () => {
+    for (const a of ATTRIBUTES) assert.ok(present(a.icon), `attribute ${a.id}: ${a.icon}`);
+    for (const s of SLOTS) assert.ok(present(s.icon), `slot ${s.id}: ${s.icon}`);
+    for (const a of ACHIEVEMENTS) {
+      if (a.icon) assert.ok(present(a.icon), `achievement ${a.id}: ${a.icon}`);
+    }
+  });
+
+  it('every terrain style has its three tiles', () => {
+    for (const [style, def] of Object.entries(TERRAIN_STYLES)) {
+      for (const key of ['mid', 'top', 'bot']) {
+        assert.ok(present(def[key]), `terrain ${style}.${key} references missing ${def[key]}`);
+      }
+    }
+  });
+
+  it('has the animation frames the renderer indexes by number', () => {
+    for (const n of [0, 1, 2, 3, 4]) assert.ok(present(`fx_boom${n}`), `fx_boom${n}`);
+    for (const n of [0, 1, 2]) assert.ok(present(`fx_hit${n}`), `fx_hit${n}`);
+    for (const n of [0, 1, 2]) assert.ok(present(`fx_thrust${n}`), `fx_thrust${n}`);
+    for (const n of [0, 1]) assert.ok(present(`fx_shield_hit${n}`), `fx_shield_hit${n}`);
+    assert.ok(present('fx_warn') && present('fx_dash'), 'HUD effect sprites');
+  });
+
+  it('every pickup kind the sim drops has a sprite', () => {
+    for (const kind of ['energy', 'repair', 'credits', 'shield', 'xp', 'crate', 'ammo']) {
+      assert.ok(present(`pu_${kind}`), `pickup ${kind} has no sprite`);
+    }
+  });
+});
+
+describe('sprite rasterisation', () => {
+  it('rasterises without throwing and caches by scale', () => {
+    const names = pixel.names();
+    for (const name of [names[0], names[Math.floor(names.length / 2)], names[names.length - 1]]) {
+      const a = pixel.raster(name, 2);
+      const b = pixel.raster(name, 2);
+      assert.equal(a, b, 'the same name and scale should return the cached canvas');
+      const def = pixel.get(name);
+      assert.equal(a.width, def.w * 2);
+      assert.equal(a.height, def.h * 2);
+    }
+  });
+
+  it('throws loudly on an unknown sprite', () => {
+    assert.throws(() => pixel.raster('no_such_sprite', 1));
+    assert.throws(() => pixel.measure('no_such_sprite', 1));
+  });
+
+  it('rejects malformed art at registration', () => {
+    assert.throws(() => pixel.normalize('ragged', { pal: { a: '#fff' }, rows: ['aa', 'a'] }));
+    assert.throws(() => pixel.normalize('nopal', { pal: {}, rows: ['x'] }));
+    assert.throws(() => pixel.normalize('empty', { pal: {}, rows: [] }));
   });
 });

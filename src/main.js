@@ -1,38 +1,42 @@
 /**
- * Deep Space — entry point.
+ * Boot, the frame loop, and input.
  *
- * Owns the profile, the active run, the animation loop and the global key
- * bindings, and hands everything else off to the ui/ modules.
+ * Owns the single requestAnimationFrame loop for the whole app and routes
+ * keyboard/mouse into the simulation's input struct. Everything else is called
+ * from here; no other module schedules frames.
  */
 
-import { $, $$, show } from './ui/dom.js';
+import { $, $$, el, show, relativeTime } from './ui/dom.js';
 import * as screens from './ui/screens.js';
 import * as gameui from './ui/gameui.js';
 import * as render from './ui/render.js';
-import { initSettings, openSettings, closeSettings, isSettingsOpen, refresh as refreshSettings } from './ui/settings.js';
-
+import { initSettings, openSettings } from './ui/settings.js';
 import * as bus from './audio/bus.js';
 import * as music from './audio/music.js';
 import { play } from './audio/sfx.js';
-
 import * as save from './core/save.js';
 import * as R from './game/run.js';
-import * as S from './game/ship.js';
-import { SECTOR_TYPES } from './game/sector.js';
+import * as U from './game/universe.js';
+import { SHIPS, unlockedShips, STARTER_SHIP } from './game/ships.js';
+import { blankInput } from './game/sim.js';
+import { checkAchievements } from './game/achievements.js';
 
-// Registering the art bags has the side effect of populating the sprite
-// registry, so these imports must happen before anything draws.
+// Art registers itself on import.
 import './ui/art-crew.js';
 import './ui/art-ships.js';
+import './ui/art-shmup.js';
 
 const state = {
   profile: null,
   run: null,
-  lastFrame: 0,
-  t: 0,
-  started: false,
-  errors: [],
+  running: false,
+  lastT: 0,
+  time: 0,
+  frameErrors: 0,
 };
+
+const keys = new Set();
+const mouse = { x: 0, y: 0, left: false, right: false, inStage: false };
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -40,44 +44,67 @@ const state = {
 
 function boot() {
   state.profile = save.loadProfile();
-  bus.loadSettings();
+  state.profile.settings = state.profile.settings || {};
+  save.purgeLegacy();
 
+  bus.loadSettings();
   screens.initModal();
   initSettings(state.profile, () => save.saveProfile(state.profile));
+
   gameui.attach({
     get run() { return state.run; },
     get profile() { return state.profile; },
-    save: saveGame,
     openSettings,
-    showHelp: () => { screens.renderHelp(); screens.showScreen('help'); },
-    toHangar: () => { state.run = null; openHangar(); },
-    toTitle: () => { state.run = null; goTitle(); },
+    endRun,
+    recordVictory,
   });
 
-  bindTitleMenu();
-  bindGlobalKeys();
-  bindAudioUnlock();
-  bindResize();
+  bindGlobalInput();
+  bindMenus();
+  sizeCanvases();
 
-  render.resizeBackdrop($('#backdrop'));
-  goTitle();
+  window.addEventListener('resize', sizeCanvases);
+
+  // Audio can only start from a gesture; the first one anywhere unlocks it.
+  const unlock = () => {
+    bus.unlock();
+    music.play('main');
+    music.bindVisibility();
+    window.removeEventListener('pointerdown', unlock);
+    window.removeEventListener('keydown', unlock);
+  };
+  window.addEventListener('pointerdown', unlock);
+  window.addEventListener('keydown', unlock);
+
+  screens.renderTitle(save.savedRunSummary());
+  screens.showScreen('title');
+
+  state.running = true;
   requestAnimationFrame(loop);
+}
 
-  if (!save.canPersist()) {
-    screens.toast({
-      tag: 'Warning',
-      name: 'Progress will not be saved',
-      desc: 'This browser is blocking local storage.',
-      kind: 'unlock',
-    });
+function sizeCanvases() {
+  render.resizeBackdrop($('#backdrop'));
+  const stage = $('#stage');
+  if (!$('#stage-wrap').hidden) render.resizeStage(stage);
+  const map = $('#mapcanvas');
+  if (!map.hidden) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const rect = map.getBoundingClientRect();
+    map.width = Math.max(1, Math.floor(rect.width * dpr));
+    map.height = Math.max(1, Math.floor(rect.height * dpr));
+    map.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 }
 
-function bindTitleMenu() {
-  document.addEventListener('click', e => {
+// ---------------------------------------------------------------------------
+// Menus
+// ---------------------------------------------------------------------------
+
+function bindMenus() {
+  $('#app').addEventListener('click', e => {
     const action = e.target.closest('[data-action]')?.dataset.action;
     if (!action) return;
-
     switch (action) {
       case 'new-run': play('click'); openHangar(); break;
       case 'continue': play('confirm'); continueRun(); break;
@@ -85,43 +112,35 @@ function bindTitleMenu() {
       case 'achievements': play('click'); screens.renderAchievements(state.profile); screens.showScreen('achievements'); break;
       case 'stats': play('click'); screens.renderStats(state.profile); screens.showScreen('stats'); break;
       case 'help': play('click'); screens.renderHelp(); screens.showScreen('help'); break;
-      case 'settings': openSettings(); break;
-      case 'back': play('cancel'); goTitle(); break;
+      case 'settings': play('click'); openSettings(); break;
+      case 'back': play('cancel'); screens.goBack('title'); break;
       case 'wipe': confirmWipe(); break;
-      default: break;
     }
   });
 }
 
-function goTitle() {
-  screens.renderTitle(save.savedRunSummary());
-  screens.showScreen('title');
-}
-
 function openHangar() {
-  screens.renderHangar(state.profile, startNewRun);
+  screens.renderHangar(state.profile, startRun);
   screens.showScreen('hangar');
 }
 
 function confirmWipe() {
-  play('cancel');
   screens.openModal({
-    title: 'Erase All Data?',
-    body: 'This permanently deletes every unlock, achievement, record and saved run stored in this browser. It cannot be undone.',
+    title: 'Erase all data?',
+    body: el('p.modal-text', { text: 'Every achievement, unlocked hull and record is deleted, along with any run in progress. This cannot be undone.' }),
     actions: [
+      { text: 'Cancel', kind: 'ghost', onClick: () => screens.closeModal() },
       {
-        label: 'Erase Everything', kind: 'danger',
+        text: 'Erase Everything', kind: 'danger',
         onClick: () => {
           state.profile = save.resetProfile();
-          save.clearRun();
-          save.saveProfile(state.profile);
+          state.profile.settings = {};
           screens.closeModal();
           screens.renderStats(state.profile);
-          refreshSettings();
+          screens.renderTitle(null);
           play('error');
         },
       },
-      { label: 'Cancel', kind: 'primary', onClick: () => screens.closeModal() },
     ],
   });
 }
@@ -130,220 +149,210 @@ function confirmWipe() {
 // Run lifecycle
 // ---------------------------------------------------------------------------
 
-function startNewRun(shipId, variant, seed) {
-  state.run = R.startRun(state.profile, shipId, variant, seed);
-  state.run.profile = state.profile;
-  enterGame();
+function startRun(shipId = STARTER_SHIP, seed = null) {
+  if (!unlockedShips(state.profile).includes(shipId)) return;
+  state.profile.stats.runs++;
+  save.saveProfile(state.profile);
+
+  state.run = R.startRun({ shipId, seed, profile: state.profile });
+  state.profile.lastShip = shipId;
+
+  gameui.ui.lastPhase = null;
+  screens.showScreen('game');
+  sizeCanvases();
+  gameui.ui.map.snapTo(U.currentNode(state.run.map));
+  gameui.syncPhase(true);
+  autosave();
+  play('jump');
 }
 
 function continueRun() {
-  const loaded = save.loadRun();
-  if (!loaded) { play('error'); goTitle(); return; }
-  state.run = loaded;
-  state.run.profile = state.profile;
-  // A run saved mid-combat resumes on the map: the fight is not serialisable
-  // and re-rolling it would be worse than letting the player off.
-  if (state.run.phase === R.PHASES.COMBAT) {
-    state.run.combat = null;
-    state.run.phase = R.PHASES.MAP;
-  }
-  enterGame();
-}
-
-function enterGame() {
-  gameui.resetForNewRun();
-  screens.showScreen('game');
-  music.play('main');
-  gameui.afterPhaseChange();
-}
-
-function saveGame() {
-  save.saveProfile(state.profile);
-  if (state.run) R.autosave(state.run);
-}
-
-// ---------------------------------------------------------------------------
-// Loop
-// ---------------------------------------------------------------------------
-
-let loopErrors = 0;
-
-/**
- * The animation loop.
- *
- * The whole body is guarded and the next frame is always scheduled: one bad
- * frame — a missing sprite, an odd layout — must never freeze the game. The
- * first few failures are reported so they don't pass silently in development.
- */
-function loop(now) {
+  const data = save.loadRun();
+  if (!data) return;
   try {
-    step(now);
-  } catch (err) {
-    loopErrors++;
-    // Keep the first few for inspection: a frame error that only reproduces
-    // on a deployed build is otherwise very hard to chase.
-    if (state.errors.length < 5) {
-      state.errors.push({ message: err.message, stack: String(err.stack || '').split('\n').slice(0, 5) });
-    }
-    if (loopErrors <= 3) {
-      console.error('Deep Space: frame error', err);
-      if (loopErrors === 1) {
-        screens.toast({ tag: 'Error', name: 'Rendering hiccup', desc: 'The game recovered; check the console.' });
-      }
-    }
+    state.run = R.deserialize(data, state.profile);
+  } catch {
+    // A save from an incompatible build should not brick the title screen.
+    save.clearRun();
+    screens.renderTitle(null);
+    return;
   }
-  requestAnimationFrame(loop);
+  gameui.ui.lastPhase = null;
+  screens.showScreen('game');
+  sizeCanvases();
+  gameui.ui.map.snapTo(U.currentNode(state.run.map));
+  gameui.syncPhase(true);
 }
 
-function step(now) {
-  const dt = Math.min(0.1, (now - state.lastFrame) / 1000 || 0);
-  state.lastFrame = now;
-  state.t += dt;
+function recordVictory() {
+  const r = state.run;
+  if (!r || r.recordedVictory) return;
+  r.recordedVictory = true;
+  save.recordRunResult(state.profile, r, 'victory');
+  const earned = checkAchievements(r, 'victory');
+  for (const a of earned) screens.toast({ tag: 'Achievement', name: a.name, desc: a.desc });
+  save.saveProfile(state.profile);
+}
 
-  const inGame = screens.currentScreen() === 'game' && state.run;
-  const combat = inGame && state.run.combat && !state.run.combat.over ? state.run.combat : null;
+function endRun(outcome) {
+  const r = state.run;
+  if (r && !r.recordedVictory) save.recordRunResult(state.profile, r, outcome);
+  // A dead run is gone for good — that is the whole point of the format.
+  save.clearRun();
+  state.run = null;
+  gameui.ui.lastPhase = null;
+  screens.renderTitle(null);
+  screens.showScreen('title');
+  music.play('main', { fade: 2 });
+}
 
-  const mood = combat ? 'combat' : inGame ? 'travel' : 'menu';
-  const tint = inGame ? SECTOR_TYPES[state.run.map.sectorType]?.color : null;
-  render.drawBackdrop($('#backdrop'), state.t, mood, tint);
-
-  if (!inGame) return;
-
-  const modalBlocking = screens.isModalOpen() || isSettingsOpen();
-  if (combat) {
-    if (!modalBlocking) combat.update(dt);
-  } else if (!modalBlocking) {
-    R.tick(state.run, dt);
-    // A run can end out of combat (suffocation, a fire nobody fought).
-    if (state.run.phase === R.PHASES.GAME_OVER && !screens.isModalOpen()) {
-      gameui.afterPhaseChange();
-    }
-  }
-  gameui.frame(dt, state.t);
+let autosaveTimer = 0;
+function autosave() {
+  if (!state.run || state.run.phase === 'dead') return;
+  try { save.saveRun(R.serialize(state.run)); } catch { /* quota; nothing to do */ }
 }
 
 // ---------------------------------------------------------------------------
 // Input
 // ---------------------------------------------------------------------------
 
-function bindGlobalKeys() {
-  document.addEventListener('keydown', e => {
-    // Never hijack typing in the seed box.
-    if (e.target.matches('input, textarea')) return;
+function bindGlobalInput() {
+  const stage = $('#stage');
 
-    if (e.key === 'Escape') {
-      if (isSettingsOpen()) { closeSettings(); return; }
-      if (screens.isModalOpen()) { screens.closeModal(); return; }
-      if (screens.currentScreen() === 'game') { gameui.openPauseMenu(); return; }
-      if (screens.currentScreen() !== 'title') { play('cancel'); goTitle(); }
+  window.addEventListener('keydown', e => {
+    if (e.repeat) return;
+    keys.add(e.code);
+
+    // Let the settings dialog and modals own Escape when they are open.
+    if (e.code === 'Escape') {
+      if (screens.isModalOpen()) return;
+      if (state.run && screens.currentScreen() === 'game') { e.preventDefault(); gameui.openPauseMenu(); }
       return;
     }
+    if (screens.isModalOpen()) return;
 
-    if (screens.currentScreen() !== 'game' || !state.run) return;
-    if (screens.isModalOpen() || isSettingsOpen()) return;
-
-    const r = state.run;
-    const combat = r.combat && !r.combat.over ? r.combat : null;
-
-    switch (e.key.toLowerCase()) {
-      case ' ':
-        e.preventDefault();
-        if (combat) gameui.togglePause();
-        break;
-      case 'm':
-        if (!combat) gameui.openStarMap();
-        break;
-      case 'a':
-        for (const w of r.ship.weapons) w.autofire = !w.autofire;
-        play('toggle');
-        gameui.renderWeapons();
-        break;
-      case 'o':
-        S.setAllDoors(r.ship, true);
-        play('door');
-        break;
-      case 'c':
-        S.setAllDoors(r.ship, false);
-        play('door');
-        break;
-      case 'tab': {
-        e.preventDefault();
-        const alive = r.ship.crew.filter(c => !c.dead);
-        if (!alive.length) break;
-        const idx = alive.findIndex(c => c.id === gameui.ui.selectedCrew);
-        gameui.ui.selectedCrew = alive[(idx + 1) % alive.length].id;
-        play('crew_select');
-        gameui.renderCrew();
-        break;
-      }
-      case '1': case '2': case '3': case '4': {
-        const n = Number(e.key) - 1;
-        if (combat) {
-          // In a fight the number row is speed control unless shift is held.
-          if (e.shiftKey) selectWeapon(n);
-          else { combat.setSpeed([1, 2, 4, 4][n] ?? 1); combat.paused = false; gameui.renderCombatControls(); play('tab'); }
-        } else {
-          selectWeapon(n);
-        }
-        break;
-      }
-      default:
-        break;
+    if (screens.currentScreen() === 'game' && state.run) {
+      if (e.code === 'KeyI') { e.preventDefault(); gameui.openInventory(); }
+      if (e.code === 'KeyM' && state.run.phase === 'map') gameui.ui.map.panTo(U.currentNode(state.run.map));
+      if (e.code === 'Space') e.preventDefault();   // never scroll the page
     }
   });
 
-  function selectWeapon(n) {
-    const r = state.run;
-    if (!r.ship.weapons[n]) return;
-    gameui.ui.selectedWeapon = gameui.ui.selectedWeapon === n ? null : n;
-    play('beacon_select');
-    gameui.renderWeapons();
+  window.addEventListener('keyup', e => keys.delete(e.code));
+  window.addEventListener('blur', () => { keys.clear(); mouse.left = mouse.right = false; });
+
+  stage.addEventListener('pointermove', e => {
+    const w = render.screenToWorld(stage, e.clientX, e.clientY);
+    mouse.x = w.x; mouse.y = w.y;
+    mouse.inStage = true;
+  });
+  stage.addEventListener('pointerdown', e => {
+    if (e.button === 0) mouse.left = true;
+    if (e.button === 2) mouse.right = true;
+    const w = render.screenToWorld(stage, e.clientX, e.clientY);
+    mouse.x = w.x; mouse.y = w.y;
+  });
+  window.addEventListener('pointerup', e => {
+    if (e.button === 0) mouse.left = false;
+    if (e.button === 2) mouse.right = false;
+  });
+  stage.addEventListener('contextmenu', e => e.preventDefault());
+}
+
+/** Translate held keys and the mouse into the sim's input struct. */
+function applyInput(world) {
+  const inp = world.input;
+  if (screens.isModalOpen()) {
+    // Freeze the controls while a dialog is up rather than flying blind.
+    Object.assign(inp, blankInput());
+    return;
+  }
+
+  const down = c => keys.has(c);
+  inp.moveX = (down('KeyD') || down('ArrowRight') ? 1 : 0) - (down('KeyA') || down('ArrowLeft') ? 1 : 0);
+  inp.moveY = (down('KeyS') || down('ArrowDown') ? 1 : 0) - (down('KeyW') || down('ArrowUp') ? 1 : 0);
+
+  inp.aimX = mouse.x;
+  inp.aimY = mouse.y;
+
+  const holdToFire = state.profile.settings.autofireDefault !== false;
+  inp.firePrimary = holdToFire ? mouse.left : true;
+  inp.fireSecondary = mouse.right;
+
+  inp.dash = down('Space') || down('ShiftLeft') || down('ShiftRight');
+  inp.abilities[0] = down('Digit1') || down('KeyQ');
+  inp.abilities[1] = down('Digit2') || down('KeyE');
+}
+
+// ---------------------------------------------------------------------------
+// Frame loop
+// ---------------------------------------------------------------------------
+
+function loop(now) {
+  if (!state.running) return;
+  requestAnimationFrame(loop);
+
+  const dt = Math.min(0.05, (now - state.lastT) / 1000 || 0);
+  state.lastT = now;
+  state.time += dt;
+
+  try {
+    frame(dt);
+  } catch (err) {
+    // One bad frame must never end the session: log it, keep the loop alive.
+    state.frameErrors++;
+    if (state.frameErrors < 6) console.error('frame error', err);
+    state.lastError = String(err && err.stack || err);
   }
 }
 
-/**
- * Browsers block audio until a gesture. The first click anywhere starts the
- * context and, on the game screen, the soundtrack.
- */
-function bindAudioUnlock() {
-  const start = () => {
-    bus.unlock();
-    bus.applyGains();
-    if (!state.started) {
-      state.started = true;
-      music.bindVisibility();
-      music.play('main');
-      refreshSettings();
+function frame(dt) {
+  const screen = screens.currentScreen();
+  const r = state.run;
+
+  const mood = screen === 'game'
+    ? (r?.phase === 'action' ? 'combat' : 'travel')
+    : 'menu';
+  render.drawBackdrop($('#backdrop'), state.time, mood);
+
+  if (screen !== 'game' || !r) return;
+
+  if (r.phase === 'action' && r.world) {
+    applyInput(r.world);
+    R.tick(r, dt);
+
+    const events = r.world ? drain(r.world) : [];
+    for (const [name, throttle] of render.consumeEvents(events, gameui.ui.effects)) {
+      play(name, { throttle });
     }
-  };
-  document.addEventListener('pointerdown', start, { once: false });
-  document.addEventListener('keydown', start, { once: false });
+    gameui.ui.effects.update(dt);
+
+    const stage = $('#stage');
+    if (stage.width === 0 || stage.dataset.sized !== `${stage.clientWidth}x${stage.clientHeight}`) {
+      render.resizeStage(stage);
+      stage.dataset.sized = `${stage.clientWidth}x${stage.clientHeight}`;
+    }
+    render.drawWorld(stage, r.world, gameui.ui.effects, state.time);
+  } else {
+    r.elapsed += dt * 0;   // non-combat time is not scored
+  }
+
+  gameui.frame(dt, state.time);
+  gameui.syncPhase();
+  gameui.renderTopbar();
+  gameui.flushToasts(r);
+
+  autosaveTimer += dt;
+  if (autosaveTimer > 8) { autosaveTimer = 0; autosave(); }
 }
 
-function bindResize() {
-  let pending = null;
-  window.addEventListener('resize', () => {
-    clearTimeout(pending);
-    pending = setTimeout(() => {
-      render.resizeBackdrop($('#backdrop'));
-      render.invalidateNebula();
-    }, 120);
-  });
+function drain(world) {
+  const out = world.events;
+  world.events = [];
+  return out;
 }
 
-// Autosave when the tab goes away, so a closed laptop doesn't cost a run.
-window.addEventListener('visibilitychange', () => {
-  if (document.hidden && state.run) saveGame();
-});
-window.addEventListener('pagehide', () => { if (state.run) saveGame(); });
+// Expose a small surface for the browser-based smoke tests.
+window.DeepSpace = { state, screens, gameui, render, R, U, save, SHIPS, startRun };
 
-// ---------------------------------------------------------------------------
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot, { once: true });
-} else {
-  boot();
-}
-
-// Expose a small surface for debugging from the console.
-globalThis.DeepSpace = { state, R, S, save, screens, gameui, render, bus, music, step };
+boot();

@@ -127,8 +127,8 @@ function createPlayer(ship) {
     beamTick: 0,
 
     dashCooldown: 0,
-    dashCharges: 1 + (s.dashCharges || 0),
-    dashMax: 1 + (s.dashCharges || 0),
+    dashCharges: Math.max(1, s.dashCharges || 1),
+    dashMax: Math.max(1, s.dashCharges || 1),
     dashTime: 0,
     invuln: 0,
 
