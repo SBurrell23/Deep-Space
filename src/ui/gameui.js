@@ -470,6 +470,8 @@ export function renderCombatControls() {
     const meter = $('#ftl-meter');
     meter.style.setProperty('--ftl', `${Math.round(r.ship.ftlCharge * 100)}%`);
     meter.classList.toggle('ready', r.ship.ftlCharge >= 1);
+    const label = meter.querySelector('b');
+    if (label) label.textContent = r.ship.ftlCharge >= 1 ? 'FTL READY' : `FTL ${Math.round(r.ship.ftlCharge * 100)}%`;
   }
 }
 
@@ -506,7 +508,7 @@ export function openStarMap() {
 
   const legend = el('div.map-legend', null,
     legendItem('#4fe3f5', 'You are here'),
-    legendItem('#17a2b8', 'Can jump to'),
+    legendItem('#ffcc5c', 'Can jump to'),
     legendItem('#5cf59b', 'Sector exit'),
     legendItem('#b3243c', 'Fleet has arrived'),
     legendItem('#3d4a6b', 'Already visited'));
@@ -647,8 +649,15 @@ function openEvent() {
   if (!event) { r.phase = R.PHASES.MAP; return; }
   play('event_choice');
 
+  // A scene plate: the beacon's own icon plus whatever prop is parked in the
+  // background. Without it every encounter is an undifferentiated wall of text.
+  const beacon = beaconById(r.map, r.map.currentId);
+  const scene = el('div.event-scene', null,
+    spriteEl(eventIcon(event, beacon), 3),
+    ui.sceneProp ? spriteEl(ui.sceneProp.sprite, 1) : null);
+
   const body = el('div', null,
-    el('p.modal-text.flavour', { text: event.text }),
+    el('div.event-head', null, scene, el('p.modal-text.flavour', { text: event.text })),
     el('div.choice-list', null,
       ...R.eventChoices(r).map(c =>
         el('button.btn.choice', {
@@ -659,6 +668,16 @@ function openEvent() {
         !c.ok && c.reason ? el('span.creq', { text: c.reason }) : null))));
 
   openModal({ title: event.title, body, dismissable: false, actions: [] });
+}
+
+/** Pick the most telling icon for an encounter: its own tag, else the beacon's. */
+function eventIcon(event, beacon) {
+  const byType = {
+    hostile: 'icon_skull', distress: 'icon_distress', hazard: 'icon_hazard',
+    repair: 'icon_repair', store: 'icon_shop', exit: 'icon_exit', empty: 'icon_star',
+  };
+  if (event.choices.some(c => c.outcomes.some(o => o.combat))) return 'icon_skull';
+  return byType[beacon?.type] || 'icon_star';
 }
 
 function chooseEvent(index) {
@@ -1241,6 +1260,15 @@ function drawShipLabel(ctx, ship, frame, name) {
   const bx = frame.x + frame.w / 2 - bw / 2;
   const by = frame.y - 15;
   const frac = Math.max(0, ship.hull / ship.maxHull);
+
+  // The player's hull is a number in the top bar; give the enemy one too, so
+  // you can judge "one more volley?" instead of eyeballing a bar.
+  if (ship.isEnemy) {
+    ctx.textAlign = 'left';
+    ctx.fillStyle = frac > 0.5 ? '#5cf59b' : frac > 0.25 ? '#ffcc5c' : '#ff5c72';
+    ctx.fillText(`${Math.max(0, Math.ceil(ship.hull))}/${ship.maxHull}`, bx + bw + 8, by + 5);
+    ctx.textAlign = 'center';
+  }
   ctx.fillStyle = 'rgba(0,0,0,.6)';
   ctx.fillRect(bx, by, bw, 5);
   ctx.fillStyle = frac > 0.5 ? '#22b35c' : frac > 0.25 ? '#d98c1f' : '#b3243c';

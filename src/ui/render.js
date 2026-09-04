@@ -322,6 +322,10 @@ function drawRoom(ctx, ship, room, tile, t, opts) {
     ctx.restore();
   }
 
+  // Fire goes under the system icon: knowing a room is alight is only half the
+  // information, and the half that matters is which system is burning.
+  if (state.fire > 0) drawFire(ctx, x, y, w, h, state.fire, t, room.id);
+
   // System icon and damage state.
   const sys = room.system ? ship.systems[room.system] : null;
   if (room.system) {
@@ -352,9 +356,6 @@ function drawRoom(ctx, ship, room, tile, t, opts) {
       ctx.fillRect(bx, by, bw * (1 - dmg), 3);
     }
   }
-
-  // Fire.
-  if (state.fire > 0) drawFire(ctx, x, y, w, h, state.fire, t, room.id);
 
   // Breach.
   if (state.breaches > 0) {
@@ -882,8 +883,8 @@ export function drawStarMap(canvas, map, opts = {}) {
     if (canGo) {
       ctx.save();
       ctx.globalAlpha = 0.42 + 0.22 * Math.sin((opts.t || 0) * 3 + b.id);
-      ctx.strokeStyle = '#4fe3f5';
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = '#ffcc5c';
+      ctx.lineWidth = 1.8;
       ctx.beginPath(); ctx.arc(x, y, r + 7, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
     }
@@ -893,7 +894,7 @@ export function drawStarMap(canvas, map, opts = {}) {
       : b.isExit ? '#5cf59b'
         : b.fleet ? '#b3243c'
           : b.visited ? '#3d4a6b'
-            : canGo ? '#17a2b8' : '#26304d';
+            : canGo ? '#d98c1f' : '#26304d';
     ctx.lineWidth = isCurrent ? 2.4 : 1.5;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);

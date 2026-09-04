@@ -800,6 +800,23 @@ input[type="checkbox"]:checked::after {
 .modal-text { color: #c2cee8; margin: 0 0 18px; line-height: 1.6; max-width: 66ch; }
 .modal-text.flavour { font-style: italic; color: var(--steel-4); }
 
+/* --- event scene plate --- */
+.event-head { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 18px; }
+.event-head .modal-text { margin: 0; }
+.event-scene {
+  flex: none;
+  position: relative;
+  width: 76px; height: 76px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: radial-gradient(circle at 50% 40%, rgba(23,162,184,.14), rgba(5,7,15,.85));
+  overflow: hidden;
+}
+.event-scene canvas { display: block; }
+.event-scene canvas:nth-child(2) { position: absolute; right: 3px; bottom: 3px; opacity: .65; }
+
 .choice-list { display: flex; flex-direction: column; gap: 7px; }
 .choice {
   text-align: left;

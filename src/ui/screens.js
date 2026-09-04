@@ -294,7 +294,8 @@ function renderShipDetail(profile, onLaunch) {
     })));
 
   pane.append(el('button.btn.btn-primary', {
-    text: `Launch the ${layout.name}`,
+    // Several hulls are named "The Kestrel", "The ..." — don't stack articles.
+    text: /^the\s/i.test(layout.name) ? `Launch ${layout.name}` : `Launch the ${layout.name}`,
     style: { minWidth: '240px' },
     onclick: () => {
       play('jump');
