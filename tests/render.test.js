@@ -90,6 +90,30 @@ describe('stage layout', () => {
     }
   });
 
+  it('keeps the ship on screen at phone widths', () => {
+    // The panels only float over the stage on wide screens. Reserving desktop
+    // margins on a 375px stage pushed the whole ship off the right edge.
+    const player = createShip('kestrel', 'A', { rng: rng() });
+    for (const [w, h] of [[375, 700], [414, 800], [320, 600], [768, 900]]) {
+      const f = render.layoutFrames(player, null, w, h, false);
+      assert.ok(f.player.x >= 0, `ship starts off-screen at ${w}px`);
+      assert.lessOrEqual(f.player.x + f.player.w, w + 1, `ship overflows the right edge at ${w}px`);
+      assert.lessOrEqual(f.player.y + f.player.h, h + 1, `ship overflows the bottom at ${w}px`);
+      // It should also still be big enough to actually play with.
+      assert.greater(f.player.w, w * 0.5, `ship is uselessly small at ${w}px`);
+    }
+  });
+
+  it('keeps both ships on screen at phone widths during combat', () => {
+    const player = createShip('kestrel', 'A', { rng: rng() });
+    const enemy = generateEnemy(rng(), 2);
+    for (const [w, h] of [[375, 700], [414, 800]]) {
+      const f = render.layoutFrames(player, enemy, w, h, false);
+      assert.ok(f.player.x >= 0, `player off-screen at ${w}px`);
+      assert.lessOrEqual(f.enemy.x + f.enemy.w, w + 1, `enemy overflows at ${w}px`);
+    }
+  });
+
   it('centres a single ship on the map screen', () => {
     const player = createShip('kestrel', 'A', { rng: rng() });
     const f = render.layoutFrames(player, null, 1440, 860, false);

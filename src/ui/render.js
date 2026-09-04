@@ -162,10 +162,17 @@ export function layoutFrames(ship, enemy, w, h, showEnemyInterior) {
   const pl = compiledLayout(ship.shipId, ship.variant);
   const pw = pl.width * TILE, ph = pl.height * TILE;
 
-  // Panels and the weapon bar eat into the stage; keep the ships clear of them.
-  const insetX = 300, insetTop = 40, insetBottom = 130;
-  const availW = Math.max(240, w - insetX - 40);
-  const availH = Math.max(180, h - insetTop - insetBottom);
+  // On a wide screen the systems panel and weapon bar float over the stage, so
+  // the ships have to keep clear of them. Below the stylesheet's 860px
+  // breakpoint those panels stack in normal flow instead and the stage is all
+  // ours — reserving desktop margins there would push the ship off-screen.
+  const overlaid = w >= 860;
+  const insetX = overlaid ? 300 : 8;
+  const insetTop = overlaid ? 40 : 8;
+  const insetBottom = overlaid ? 130 : 8;
+  const insetRight = overlaid ? 40 : 8;
+  const availW = Math.max(160, w - insetX - insetRight);
+  const availH = Math.max(120, h - insetTop - insetBottom);
 
   if (!enemy) {
     // On the map there is only one ship, so let it fill the room it has.
@@ -193,12 +200,14 @@ export function layoutFrames(ship, enemy, w, h, showEnemyInterior) {
   const enemyW = showEnemyInterior ? ew : exteriorW;
   const enemyH = showEnemyInterior ? eh : exteriorH;
 
+  // The floor has to be low enough that two ships still fit side by side on a
+  // phone; clamping it higher pushed them off the edge of the screen.
   const scale = clamp(
     Math.min((availW - gap) / (pw + enemyW), availH * 0.82 / Math.max(ph, enemyH)),
-    0.55, 1.7);
+    0.22, 1.7);
 
   const totalW = (pw + enemyW) * scale + gap;
-  const left = Math.round(insetX + (availW - totalW) / 2);
+  const left = Math.round(Math.max(insetX, insetX + (availW - totalW) / 2));
   const midY = insetTop + availH / 2;
 
   return {
