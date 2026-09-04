@@ -31,6 +31,7 @@ const state = {
   lastFrame: 0,
   t: 0,
   started: false,
+  errors: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -179,6 +180,11 @@ function loop(now) {
     step(now);
   } catch (err) {
     loopErrors++;
+    // Keep the first few for inspection: a frame error that only reproduces
+    // on a deployed build is otherwise very hard to chase.
+    if (state.errors.length < 5) {
+      state.errors.push({ message: err.message, stack: String(err.stack || '').split('\n').slice(0, 5) });
+    }
     if (loopErrors <= 3) {
       console.error('Deep Space: frame error', err);
       if (loopErrors === 1) {
@@ -340,4 +346,4 @@ if (document.readyState === 'loading') {
 }
 
 // Expose a small surface for debugging from the console.
-globalThis.DeepSpace = { state, R, S, save, screens, gameui, render, bus, music };
+globalThis.DeepSpace = { state, R, S, save, screens, gameui, render, bus, music, step };
