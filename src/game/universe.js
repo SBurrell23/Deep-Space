@@ -24,14 +24,16 @@ export const NODE_STATE = { UNKNOWN: 'unknown', SEEN: 'seen', VISITED: 'visited'
  * is mostly teeth. Weights are relative within each band.
  */
 const TYPE_MIX = [
+  // Hostiles carries the weight the old Hostiles, Swarm and Pursuit nodes
+  // carried between them: they were three names for the same fight.
   // ring 0-2
-  { combat: 26, swarm: 16, asteroid: 12, tunnel: 8, derelict: 7, anomaly: 16, shop: 10, empty: 8, survival: 5, chase: 3, elite: 0, boss: 0 },
+  { hostiles: 45, asteroid: 12, tunnel: 8, derelict: 7, anomaly: 16, shop: 10, empty: 8, survival: 5, elite: 0, boss: 0 },
   // ring 3-5
-  { combat: 26, swarm: 14, asteroid: 10, tunnel: 9, derelict: 8, anomaly: 14, shop: 8, empty: 5, survival: 6, chase: 5, elite: 5, boss: 3 },
+  { hostiles: 45, asteroid: 10, tunnel: 9, derelict: 8, anomaly: 14, shop: 8, empty: 5, survival: 6, elite: 5, boss: 3 },
   // ring 6-8
-  { combat: 24, swarm: 12, asteroid: 8, tunnel: 9, derelict: 8, anomaly: 12, shop: 7, empty: 3, survival: 7, chase: 6, elite: 9, boss: 6 },
+  { hostiles: 42, asteroid: 8, tunnel: 9, derelict: 8, anomaly: 12, shop: 7, empty: 3, survival: 7, elite: 9, boss: 6 },
   // ring 9-11
-  { combat: 22, swarm: 10, asteroid: 7, tunnel: 8, derelict: 7, anomaly: 10, shop: 6, empty: 2, survival: 7, chase: 6, elite: 13, boss: 10 },
+  { hostiles: 38, asteroid: 7, tunnel: 8, derelict: 7, anomaly: 10, shop: 6, empty: 2, survival: 7, elite: 13, boss: 10 },
 ];
 
 function mixForRing(ring) {

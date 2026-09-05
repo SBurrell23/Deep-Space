@@ -103,12 +103,19 @@ function median(a) {
  * hull. So leak flattens the cost curve, while damageScale moves the whole
  * thing up or down.
  */
+/**
+ * Candidates for the "fewer, deadlier" redesign.
+ *
+ * Enemy count is already cut to roughly a third. That collapses both the
+ * length of a fight and its cost, so toughness has to come back up to keep
+ * fights from ending in half a minute, and damage has to come up much further
+ * than that: with a third of the guns pointed at you, a shot has to be worth
+ * dodging on its own.
+ */
 const CANDIDATES = [
-  { name: 'dmg .22 (committed)', apply: () => {} },
-  { name: 'dmg .28', apply: () => { E.damageScale = 0.28; } },
-  { name: 'dmg .34', apply: () => { E.damageScale = 0.34; } },
-  { name: 'dmg .34, leak .50', apply: () => { E.damageScale = 0.34; D.shieldLeakBase = 0.50; D.shieldLeakPerShields = 0.011; D.shieldLeakFloor = 0.26; } },
-  { name: 'dmg .40, leak .50', apply: () => { E.damageScale = 0.40; D.shieldLeakBase = 0.50; D.shieldLeakPerShields = 0.011; D.shieldLeakFloor = 0.26; } },
+  { name: 'tough x1.8, dmg 0.55', apply: () => { E.toughness = { swarm: 17.6, mid: 10.3, heavy: 6.7, elite: 3.6 }; E.damageScale = 0.55; } },
+  { name: 'tough x1.8, dmg 0.80', apply: () => { E.toughness = { swarm: 17.6, mid: 10.3, heavy: 6.7, elite: 3.6 }; E.damageScale = 0.80; } },
+  { name: 'tough x1.8, dmg 1.10', apply: () => { E.toughness = { swarm: 17.6, mid: 10.3, heavy: 6.7, elite: 3.6 }; E.damageScale = 1.10; } },
 ];
 
 const ORIGINAL = JSON.parse(JSON.stringify({ e: E, d: D, n: N }));

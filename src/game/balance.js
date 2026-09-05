@@ -33,8 +33,16 @@ export const BALANCE = {
   // Enemies
   // -------------------------------------------------------------------------
   enemies: {
-    /** Global multiplier on all enemy damage output. */
-    damageScale: 0.29,
+    /**
+     * Global multiplier on all enemy damage output.
+     *
+     * Five times what it was, because there are a third as many ships firing.
+     * The old game put twenty-eight hulls and a wall of bullets on the field
+     * and made each shot nearly free, which reads as chaos rather than
+     * difficulty — there is nothing to dodge when everything is a pinprick and
+     * there are too many to see. Fewer guns, each one worth avoiding.
+     */
+    damageScale: 1.15,
 
     /**
      * Per-class toughness on top of each archetype's base hull.
@@ -44,7 +52,14 @@ export const BALANCE = {
      * carries an elite flag and an encounter's threatBonus — produced capital
      * ships with 16,000 hull that took 80 seconds of unbroken fire to kill.
      */
-    toughness: { swarm: 9.8, mid: 5.7, heavy: 3.7, elite: 2.0 },
+    // Raised alongside the count cut so a fight is not over in half a minute:
+    // a third of the ships have to carry roughly twice the hull between them.
+    //
+    // Elites get more again. A capital ship is meant to be a duel you learn
+    // the rhythm of, and with its escort screen cut to a third it was dying in
+    // twenty-two seconds — the whole encounter resolved before its later waves
+    // had even arrived.
+    toughness: { swarm: 19.6, mid: 11.4, heavy: 7.4, elite: 5.8 },
 
     /**
      * Per-threat-level compounding.
@@ -60,7 +75,7 @@ export const BALANCE = {
      * sheer exposure.
      */
     hullGrowth: 1.070,
-    damageGrowth: 1.024,
+    damageGrowth: 1.008,
 
     /**
      * A gentler opening.
@@ -140,19 +155,25 @@ export const BALANCE = {
   // -------------------------------------------------------------------------
   encounters: {
     /**
-     * How much enemy a budget-driven wave may buy, per threat level.
+     * How many ships a fight fields.
      *
-     * This was 45 flat plus 0.4 per level, so a threat-20 fight fielded the
-     * same number of ships as a threat-1 one — every bit of the difficulty
-     * curve lived in per-enemy hull and damage. The result was that regular
-     * fights stayed thin and free while bosses, whose compositions are written
-     * out by hand, carried the entire danger of the game.
+     * The old answer was "as many as will fit". A threat-8 Hostiles node put
+     * twenty-eight ships on the field with two dozen alive at once, and the
+     * screen was a wall of bullets nobody could read, let alone dodge. Volume
+     * is not difficulty; it is noise that difficulty hides behind.
      *
-     * More, cheaper enemies is the version a player can feel: more guns
-     * pointed at you, more to dodge, and a fight that costs something.
+     * The game these numbers describe instead: ten to twenty ships in a
+     * shallow fight, a handful on screen at a time, each one carrying an
+     * attack worth respecting. You are meant to be dodging every shot, and
+     * that is only possible when you can see them.
+     *
+     * `budget` feeds waves that ask for "some ships"; `countScale` trims the
+     * waves that name an exact number, so both kinds shrink together without
+     * editing thirty-eight encounters by hand.
      */
-    budgetBase: 58,
-    budgetPerThreat: 0.6,
+    budgetBase: 17,
+    budgetPerThreat: 0.55,
+    countScale: 0.42,
   },
 
   // -------------------------------------------------------------------------

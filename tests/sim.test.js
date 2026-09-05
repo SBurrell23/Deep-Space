@@ -29,7 +29,7 @@ function run(world, seconds, drive = null) {
 }
 
 const SKIRMISH = {
-  id: 'test_skirmish', name: 'Test', type: 'combat',
+  id: 'test_skirmish', name: 'Test', type: 'hostiles',
   objective: { kind: 'clear' },
   waves: [{ at: 0, spawn: [{ id: 'picket', count: 4, formation: 'line' }] }],
 };
@@ -282,7 +282,7 @@ describe('simulation — objectives', () => {
 
   it('loses on a time limit', () => {
     const { world } = makeWorld({
-      id: 't', name: 'T', type: 'combat',
+      id: 't', name: 'T', type: 'hostiles',
       objective: { kind: 'clear', timeLimit: 2 },
       waves: [{ at: 0, spawn: [{ id: 'bulwark', count: 3 }] }],
     });
@@ -304,7 +304,7 @@ describe('simulation — objectives', () => {
     // hover/mirror/guard movers hold station forever; without stragglers
     // closing in, a "clear" objective could sit unwinnable until the timeout.
     const { world } = makeWorld({
-      id: 't', name: 'T', type: 'combat',
+      id: 't', name: 'T', type: 'hostiles',
       objective: { kind: 'clear' },
       waves: [{ at: 0, spawn: [{ id: 'artillery', count: 2, formation: 'line' }] }],
     });
@@ -326,7 +326,7 @@ describe('simulation — entities', () => {
     // the last batch: held down, a drone weapon settled into a dozen homing
     // guns that never missed.
     const { world, ship } = makeWorld({
-      id: 'drone_test', name: 'Drone Test', type: 'combat',
+      id: 'drone_test', name: 'Drone Test', type: 'hostiles',
       objective: { kind: 'survive', seconds: 90 },
       waves: [{ at: 0, spawn: [{ id: 'picket', count: 3, formation: 'line' }] }],
     }, { threat: 6 });
@@ -352,15 +352,59 @@ describe('simulation — entities', () => {
     assert.ok(ship);
   });
 
+  it('makes a charge weapon actually charge before it pays out', () => {
+    // Energy is drained per second of holding, so a tapped charge weapon cost
+    // almost nothing — and its damage multiplier started at 1.0, so it still
+    // detonated for full. Tapping was strictly better than charging.
+    const NOVA = {
+      name: 'Test Nova', behaviour: 'charge', damage: 100, rof: 1, energy: 22,
+      chargeTime: 1.1, chargeMult: 2.4, speed: 0, radius: 240,
+      splashMult: 1, selfCentred: true,
+    };
+
+    const fire = holdFor => {
+      const { world } = makeWorld(SKIRMISH, { threat: 4 });
+      world.player.secondary = NOVA;
+      world.player.energy = world.player.maxEnergy = 1000;
+      // Regen would refill most of what the charge drains and hide the cost.
+      world.player.stats = { ...world.player.stats, energyRegen: 0 };
+      run(world, 1.5);
+      for (const e of world.enemies) {
+        e.hull = e.maxHull = 1e9; e.shield = 0; e.armour = 0;
+        e.x = world.player.x + 30; e.y = world.player.y;
+        e.move = 'hover'; e.fire = 'none';
+      }
+      const beforeHull = world.enemies.map(e => e.hull);
+      const beforeEnergy = world.player.energy;
+      let t = 0;
+      run(world, holdFor + 0.6, w => {
+        w.input.fireSecondary = t < holdFor;
+        t += 1 / 60;
+        for (const e of w.enemies) { e.x = w.player.x + 30; e.y = w.player.y; }
+      });
+      const dealt = world.enemies.reduce((a, e, i) => a + (beforeHull[i] - e.hull), 0);
+      return { dealt, spent: beforeEnergy - world.player.energy };
+    };
+
+    const tapped = fire(0.05);
+    const charged = fire(1.2);
+
+    assert.equal(tapped.dealt, 0, 'a tap must not fire at all');
+    assert.greater(charged.dealt, 0, 'a full charge must fire');
+    assert.greater(charged.spent, 15, 'and it must cost real energy');
+  });
+
   it('keeps every heavy mount inside one damage band', () => {
     // The heavy mounts are meant to be a choice between characters, not a
     // right answer. They were not: reusing `damage` as a lingering zone's
     // per-tick number made the Singularity Bomb land 1,586 on a single target
     // where the Ion Storm landed 183, and 12,233 across a cluster.
     const RANGE = {
-      id: 'tert_range', name: 'Range', type: 'combat',
+      id: 'tert_range', name: 'Range', type: 'hostiles',
       objective: { kind: 'survive', seconds: 999 },
-      waves: [{ at: 0, spawn: [{ id: 'gunship', count: 6, formation: 'arc' }] }],
+      // `ids` rather than `count`, so the measuring rig is not resized by the
+      // global count scaling the real encounters are subject to.
+      waves: [{ at: 0, spawn: [{ ids: Array(6).fill('gunship'), formation: 'arc' }] }],
     };
 
     const results = {};
@@ -448,7 +492,7 @@ describe('simulation — entities', () => {
 
   it('does not leak entities over a long fight', () => {
     const { world } = makeWorld({
-      id: 't', name: 'T', type: 'combat',
+      id: 't', name: 'T', type: 'hostiles',
       objective: { kind: 'survive', seconds: 40 },
       waves: [
         { at: 0, spawn: [{ budget: 1, pool: ['picket', 'wasp', 'gunship'], formation: 'random' }] },
@@ -483,7 +527,7 @@ describe('simulation — entities', () => {
 
   it('scales spawned adds down from their parent', () => {
     const { world } = makeWorld({
-      id: 't', name: 'T', type: 'combat',
+      id: 't', name: 'T', type: 'hostiles',
       objective: { kind: 'clear' },
       waves: [{ at: 0, spawn: [{ id: 'drone_carrier', count: 1 }] }],
     }, { threat: 8 });

@@ -36,6 +36,9 @@ const MAX_DRONES = 4;
 /** How many times an enemy may circle back before it is allowed to leave. */
 const MAX_PASSES = 2;
 
+/** Damage multiplier of a charge weapon released at the minimum charge. */
+const CHARGE_FLOOR = 0.34;
+
 // ---------------------------------------------------------------------------
 // World construction
 // ---------------------------------------------------------------------------
@@ -407,8 +410,15 @@ function fireWeapons(world, dt) {
           p.charging[which] = Math.min(wep.chargeTime, p.charging[which] + dt);
         }
       } else if (p.charging[which] > 0) {
+        const ratio = p.charging[which] / wep.chargeTime;
+        if (ratio < MIN_CHARGE) {
+          // Let go too early: the charge bleeds away rather than firing.
+          p.charging[which] = 0;
+          emit(world, { type: 'dryFire' });
+          continue;
+        }
         countShot();
-        releaseCharge(world, wep, aim, p.charging[which] / wep.chargeTime);
+        releaseCharge(world, wep, aim, ratio);
         p.charging[which] = 0;
         p[timerKey] = shotInterval(wep);
       }
@@ -500,9 +510,17 @@ function fireShot(world, wep, aim) {
   }
 }
 
+/** Below this fraction of a full charge, the trigger simply does not release. */
+const MIN_CHARGE = 0.22;
+
 function releaseCharge(world, wep, aim, ratio) {
   const p = world.player;
-  const mult = 1 + (wep.chargeMult - 1) * ratio;
+  // A charge weapon's damage has to START low. It used to be `1 + (mult-1)*r`,
+  // so a shot released at zero charge still dealt 100% of the base damage —
+  // and since the energy is drained per second of holding, a tapped Nova
+  // Charge cost about a third of one energy and detonated for full. Tapping
+  // was strictly better than charging.
+  const mult = CHARGE_FLOOR + (wep.chargeMult - CHARGE_FLOOR) * ratio;
   world.stats.shotsFired++;
   emit(world, { type: 'fire', sound: wep.sound, x: p.x, y: p.y, charged: ratio });
 

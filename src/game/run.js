@@ -405,13 +405,17 @@ function maybeLevelUp(run, next) {
 
 export function spendPoint(run, attrId) {
   const ok = S.spendAttributePoint(run.ship, attrId);
-  if (ok && !S.hasUnspentPoints(run.ship)) run.phase = 'map';
+  // Only the level-up SCREEN returns you to the map. Points can also be spent
+  // from the top bar in the middle of a fight, and this used to drop the phase
+  // to 'map' regardless — which tore down the encounter under the player and
+  // left the node unwinnable.
+  if (ok && run.phase === 'levelup' && !S.hasUnspentPoints(run.ship)) run.phase = 'map';
   if (ok) fireAchievements(run, 'levelup');
   return ok;
 }
 
 export function closeLevelUp(run) {
-  run.phase = 'map';
+  if (run.phase === 'levelup') run.phase = 'map';
 }
 
 // ---------------------------------------------------------------------------

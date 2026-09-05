@@ -191,7 +191,7 @@ describe('items', () => {
     S.recompute(ship);
     assert.equal(ship.abilities.length, 3);
 
-    const enc = candidatesFor(3, 'combat')[0];
+    const enc = candidatesFor(3, 'hostiles')[0];
     const world = createWorld({ encounter: enc, threat: 3, ship, rng: rng.fork('w') });
     assert.equal(world.player.abilities.length, 3,
       'every equipped ability has to reach the cockpit');

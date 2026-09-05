@@ -129,6 +129,38 @@ everything it earned did not have an economy, it had a scoreboard.
 Every one of those numbers lives in `src/game/balance.js`, with the reasoning
 next to it, and can be re-measured or swept from `tests/`.
 
+**v2.7 rebuilt what a fight is.** Hostiles, Swarm and Pursuit were three node
+types that all came down to "ships are shooting at you", and one of them could
+be won by running out a clock. They are one type now — Hostiles — and it always
+means the same thing: destroy everything that turns up.
+
+The fight underneath changed with it. A threat-8 node used to field 28 ships
+with two dozen alive at once and a wall of bullets nobody could read; each shot
+was close to free. Volume is not difficulty, it is noise that difficulty hides
+behind. Now:
+
+| | before | after |
+|---|---|---|
+| ships in a shallow fight | 34 spawned, 28 at once | 10 spawned, 9 at once |
+| ships in a deep fight | 25-59 spawned | 18 spawned, 15 at once |
+| enemy damage multiplier | 0.29 | 1.15 |
+| median fight length | 43-67s | 39-70s |
+| hull cost per fight | 2-14% | 5-17% |
+
+Roughly a third of the ships, each hitting about four times as hard. You are
+meant to be dodging every shot, and that is only possible when you can see them.
+
+The synthetic pilot had to be rewritten to measure any of this: it dodged by
+repulsion inside a 70-140px radius, which is a third of a second of warning
+against a reaction lag of up to 0.3s. It reads shots forward now and steps off
+their line, and it can only track a few at a time — which is what makes skill
+mean anything in a fight with bullets in it. Per-fight death now runs 14% at
+pilot skill 0.4 against 10% at 0.95; before the rewrite skill barely moved it.
+
+Outstanding: 10% per fight at the top of the skill range is still high for a
+thirty-node run, and the headless pilot wins none. A person who genuinely
+dodges should beat it, but that is an assumption this harness cannot check.
+
 **v2.6 found the probes themselves were wrong.** All three built their reference
 ship by spending attribute points in a loop without ever raising
 `progress.level`, so the "level 20" ship they measured was formally level 1.

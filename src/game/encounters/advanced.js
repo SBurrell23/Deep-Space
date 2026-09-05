@@ -12,7 +12,7 @@
 
 export const ADVANCED_ENCOUNTERS = [
   {
-    id: 'censer_choir', name: 'Censer Choir', type: 'combat', weight: 11,
+    id: 'censer_choir', name: 'Censer Choir', type: 'hostiles', weight: 11,
     minThreat: 7, maxThreat: 16,
     blurb: 'Three ships that will not let you close.',
     intro: 'They hold a loose triangle and burn the space between them. There is a way through it; there is not a way over it.',
@@ -28,7 +28,7 @@ export const ADVANCED_ENCOUNTERS = [
   },
 
   {
-    id: 'ashfall', name: 'Ashfall', type: 'combat', weight: 10,
+    id: 'ashfall', name: 'Ashfall', type: 'hostiles', weight: 10,
     minThreat: 8, maxThreat: 18,
     blurb: 'They set the sky on fire behind you as you move.',
     intro: 'Pyres do not aim at you. They aim at where you were going.',
@@ -42,7 +42,7 @@ export const ADVANCED_ENCOUNTERS = [
   },
 
   {
-    id: 'basilisk_watch', name: "Basilisk's Watch", type: 'combat', weight: 10,
+    id: 'basilisk_watch', name: "Basilisk's Watch", type: 'hostiles', weight: 10,
     minThreat: 9, maxThreat: 19,
     blurb: 'A lance that tracks you until the moment it fires.',
     intro: 'It paints the line first. Whether that is a courtesy or a taunt is unclear.',
@@ -71,7 +71,7 @@ export const ADVANCED_ENCOUNTERS = [
   },
 
   {
-    id: 'wall_and_hammer', name: 'Wall And Hammer', type: 'combat', weight: 10,
+    id: 'wall_and_hammer', name: 'Wall And Hammer', type: 'hostiles', weight: 10,
     minThreat: 10, maxThreat: 20,
     blurb: 'Walls from the front, closing walls from the edges.',
     intro: 'The gap is always there. It is rarely where you would like it to be.',

@@ -80,7 +80,7 @@ describe('run lifecycle', () => {
   it('routes each node type to the right phase', () => {
     const run = freshRun('ROUTE');
     // Force each type onto a reachable node and check where it lands.
-    for (const [type, expected] of [['anomaly', 'anomaly'], ['shop', 'shop'], ['combat', 'brief']]) {
+    for (const [type, expected] of [['anomaly', 'anomaly'], ['shop', 'shop'], ['hostiles', 'brief']]) {
       const fresh = freshRun(`ROUTE-${type}`);
       const target = U.reachable(fresh.map)[0];
       const enc = [...ENCOUNTER_TYPES[type] ? [type] : []][0];
@@ -171,6 +171,34 @@ describe('run lifecycle', () => {
     R.declineEncounter(run);
     assert.equal(run.map.currentId, origin,
       'the door back leads to where the whole move started, not the last hop');
+  });
+
+  it('lets you spend attribute points mid-fight without ending the fight', () => {
+    // Points can be spent from the top bar at any time. Spending the last one
+    // used to drop the run's phase to 'map' regardless of where you were,
+    // which tore the encounter down around the player and left the node
+    // unwinnable — reported from a boss fight.
+    const run = freshRun('MIDFIGHT');
+    const next = U.reachable(run.map).find(n => !n.cleared
+      && ENCOUNTER_TYPES[n.type]?.action);
+    if (!next) return;
+    R.jump(run, next.id);
+    if (run.phase !== 'brief') return;
+    R.beginEncounter(run);
+    assert.equal(run.phase, 'action');
+
+    run.ship.progress.unspentPoints = 1;
+    assert.equal(R.spendPoint(run, 'hull'), true);
+    assert.equal(run.phase, 'action', 'spending a point must not abandon the fight');
+
+    R.closeLevelUp(run);
+    assert.equal(run.phase, 'action', 'and neither must closing the screen');
+
+    // The level-up screen itself still hands you back to the map.
+    run.phase = 'levelup';
+    run.ship.progress.unspentPoints = 1;
+    R.spendPoint(run, 'hull');
+    assert.equal(run.phase, 'map');
   });
 
   it('carries hull damage between encounters but restores the shield', () => {

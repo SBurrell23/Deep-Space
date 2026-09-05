@@ -100,7 +100,7 @@ describe('encounter content', () => {
   it('always returns something, even for an unsupported type', () => {
     const rng = new RNG('FALLBACK');
     assert.ok(pickEncounter(rng, 1, 'no_such_type'));
-    assert.ok(pickEncounter(rng, 99, 'combat'));
+    assert.ok(pickEncounter(rng, 99, 'hostiles'));
   });
 });
 

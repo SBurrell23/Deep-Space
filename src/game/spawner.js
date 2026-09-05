@@ -244,7 +244,14 @@ export class Spawner {
   }
 
   resolveIds(group) {
-    if (group.id) return Array(Math.max(1, group.count || 1)).fill(group.id);
+    if (group.id) {
+      // Written counts are scaled globally rather than edited one encounter at
+      // a time: the whole game was a wall of twenty-plus ships and hundreds of
+      // bullets, which is noise rather than difficulty. Never below one — a
+      // group of one is a named ship somebody put there on purpose.
+      const n = Math.max(1, Math.round((group.count || 1) * ENC.countScale));
+      return Array(n).fill(group.id);
+    }
     if (group.ids) return [...group.ids];
     if (group.budget) {
       const objective = this.encounter.objective?.kind;

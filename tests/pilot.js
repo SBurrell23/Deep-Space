@@ -5,9 +5,17 @@
  * obstacle avoidance) silently skewed a whole balance sweep and looked like a
  * game-difficulty problem rather than a harness bug.
  *
- * `skill` in 0..1 governs reaction lag, aim error, threat-awareness radius and
- * how readily the pilot spends a dash. It is not meant to model a great player —
- * balance should hold for a competent one.
+ * `skill` in 0..1 governs reaction lag, aim error, how far ahead the pilot
+ * reads incoming fire, and how readily it spends a dash. It is not meant to
+ * model a great player — balance should hold for a competent one.
+ *
+ * Dodging is PREDICTIVE, not reactive. It used to be a repulsion field with a
+ * 70-140px radius, which meant the pilot only moved once a shot was already
+ * about to land: at 300px/sec that is a third of a second of warning against a
+ * reaction lag of up to 0.3s. Raising `skill` barely helped, so the harness
+ * reported a dodge-based design as simply lethal at every skill level and could
+ * not be used to tune one. It now projects each shot forward and steps out of
+ * the ones that are actually going to hit, which is what a person does.
  */
 
 export function createPilot(skill, rng) {
@@ -16,9 +24,23 @@ export function createPilot(skill, rng) {
     reaction: 0.30 - 0.22 * skill,
     aimError: (1 - skill) * 0.22,
     dodgeRadius: 70 + 70 * skill,
+    /** Seconds of incoming fire the pilot reads ahead. */
+    lookahead: 0.22 + 0.70 * skill,
+    /**
+     * How many incoming shots the pilot can track at once.
+     *
+     * This is what makes skill mean something in a bullet-heavy fight. With no
+     * limit a predictive dodger simply avoids everything and the harness
+     * reports any amount of enemy fire as survivable; with one, a screen with
+     * more shots on it than the pilot can hold gets through, which is exactly
+     * the pressure the fight is supposed to apply.
+     */
+    attention: Math.round(1 + 7 * skill),
     rng,
     _react: 0,
     _aimJitter: 0,
+    _dodgeX: 0,
+    _dodgeY: 0,
   };
 }
 
@@ -28,7 +50,8 @@ export function pilotInput(world, pilot, dt = 1 / 60) {
   const inp = world.input;
 
   pilot._react -= dt;
-  if (pilot._react <= 0) {
+  const reread = pilot._react <= 0;
+  if (reread) {
     pilot._react = pilot.reaction;
     pilot._aimJitter = pilot.rng.float(-pilot.aimError, pilot.aimError);
   }
@@ -58,16 +81,46 @@ export function pilotInput(world, pilot, dt = 1 / 60) {
     ax += (dx / d) * weight; ay += (dy / d) * weight; danger += weight;
   };
 
-  for (const b of world.eBullets) {
-    if (b.dead || b.delay > 0) continue;
-    const dx = p.x - b.x, dy = p.y - b.y;
-    const d = Math.hypot(dx, dy);
-    if (d > pilot.dodgeRadius || d < 1) continue;
-    // Only dodge what is actually closing on us.
-    const closing = (b.vx * -dx + b.vy * -dy) / d;
-    if (closing <= 0) continue;
-    push(dx, dy, d, (1 - d / pilot.dodgeRadius) * (1 + closing / 400));
+  // Incoming fire, read forward rather than reacted to, and only re-read every
+  // `reaction` seconds — a sluggish pilot keeps steering off a picture that has
+  // already moved on.
+  const hitBox = p.r + 12;
+  if (reread) {
+    const threats = [];
+    for (const b of world.eBullets) {
+      if (b.dead || b.delay > 0) continue;
+      const rx = p.x - b.x, ry = p.y - b.y;
+      const speed2 = b.vx * b.vx + b.vy * b.vy;
+      if (speed2 < 1) continue;
+
+      // Time of closest approach, clamped to the window we are willing to read.
+      const t = Math.max(0, Math.min(pilot.lookahead, (rx * b.vx + ry * b.vy) / speed2));
+      const missX = rx - b.vx * t, missY = ry - b.vy * t;
+      const miss = Math.hypot(missX, missY);
+      if (miss > hitBox + pilot.dodgeRadius) continue;
+
+      const urgency = (1 - t / (pilot.lookahead + 0.001))
+        * (1 - miss / (hitBox + pilot.dodgeRadius));
+      if (urgency > 0) threats.push({ b, urgency, missX, missY, speed2 });
+    }
+
+    // Only the most pressing few: nobody tracks a whole screen at once.
+    threats.sort((x, y) => y.urgency - x.urgency);
+    let dx = 0, dy = 0;
+    for (const th of threats.slice(0, pilot.attention)) {
+      const inv = 1 / Math.sqrt(th.speed2);
+      let px = -th.b.vy * inv, py = th.b.vx * inv;
+      if (px * th.missX + py * th.missY < 0) { px = -px; py = -py; }
+      dx += px * th.urgency * 3.2;
+      dy += py * th.urgency * 3.2;
+    }
+    pilot._dodgeX = dx;
+    pilot._dodgeY = dy;
+    pilot._danger = threats.slice(0, pilot.attention).reduce((a, t) => a + t.urgency, 0);
   }
+  ax += pilot._dodgeX;
+  ay += pilot._dodgeY;
+  danger += pilot._danger || 0;
 
   for (const e of world.enemies) {
     if (e.dead) continue;

@@ -13,7 +13,7 @@ export const COMBAT_ENCOUNTERS = [
   // LOW BAND (1–8) — readable, forgiving, teaches the vocabulary.
   // -------------------------------------------------------------------------
   {
-    id: 'picket_line', name: 'Picket Line', type: 'combat', weight: 14,
+    id: 'picket_line', name: 'Picket Line', type: 'hostiles', weight: 14,
     minThreat: 1, maxThreat: 6,
     blurb: 'A thin screen of automated drones, and whatever it calls in.',
     intro: 'Someone left a tripwire out here. It has noticed you.',
@@ -26,7 +26,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'gun_and_wasps', name: 'Standing Patrol', type: 'combat', weight: 12,
+    id: 'gun_and_wasps', name: 'Standing Patrol', type: 'hostiles', weight: 12,
     minThreat: 1, maxThreat: 5,
     blurb: 'One Gunship holding a lane. Wasps run it from above and below.',
     intro: 'The Gunship does not chase. It does not need to.',
@@ -39,7 +39,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'mine_garden', name: 'Mine Garden', type: 'combat', weight: 11,
+    id: 'mine_garden', name: 'Mine Garden', type: 'hostiles', weight: 11,
     minThreat: 1, maxThreat: 7,
     blurb: 'Mines seeded across the lane. Turret pods cover the gaps between them.',
     intro: 'Someone planted this and never came back for the harvest.',
@@ -52,7 +52,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'scout_patrol', name: 'Scout Patrol', type: 'combat', weight: 12,
+    id: 'scout_patrol', name: 'Scout Patrol', type: 'hostiles', weight: 12,
     minThreat: 1, maxThreat: 6,
     blurb: 'A Scout runs the lane and leaves. What it told is already on the way.',
     intro: 'It comes in fast, holds just long enough to look at you, and goes.',
@@ -65,7 +65,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'wasp_nest', name: 'Wasp Nest', type: 'swarm', weight: 12,
+    id: 'wasp_nest', name: 'Wasp Nest', type: 'hostiles', weight: 12,
     minThreat: 1, maxThreat: 6,
     blurb: 'Wasps from the edges while Bomblet Carriers seed the space you back into.',
     intro: 'Small things, fast, and there is no corner they have not thought about.',
@@ -78,7 +78,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'seeker_tide', name: 'Seeker Tide', type: 'swarm', weight: 12,
+    id: 'seeker_tide', name: 'Seeker Tide', type: 'hostiles', weight: 12,
     minThreat: 1, maxThreat: 7,
     blurb: 'Unarmed ramming pods drive you sideways into a turret sweep.',
     intro: 'The pods have no guns. They do not need any if you keep moving where they want.',
@@ -91,7 +91,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'cold_start', name: 'Cold Start', type: 'combat', weight: 9,
+    id: 'cold_start', name: 'Cold Start', type: 'hostiles', weight: 9,
     minThreat: 2, maxThreat: 8,
     blurb: 'Something was already drifting here with its drives cold. It is close.',
     intro: 'Three pods light up at knife range. They have no guns, which is not comfort.',
@@ -106,7 +106,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'splitter_bloom', name: 'Splitter Bloom', type: 'swarm', weight: 11,
+    id: 'splitter_bloom', name: 'Splitter Bloom', type: 'hostiles', weight: 11,
     minThreat: 2, maxThreat: 9,
     blurb: 'Splitters, and only Splitters. Killing one makes two more.',
     intro: 'The problem gets bigger before it gets smaller. There is no way around that.',
@@ -120,11 +120,11 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'tender_run', name: 'Tender Run', type: 'combat', weight: 11,
+    id: 'tender_run', name: 'Tender Run', type: 'hostiles', weight: 11,
     minThreat: 2, maxThreat: 9,
     blurb: 'A Drone Tender that floods the lane if you leave it alone. It runs when you do not.',
     intro: 'The Tender keeps its distance and keeps building. Its escort is arranged so that chasing it costs you.',
-    objective: { kind: 'destroy', tag: 'tender' },
+    objective: { kind: 'clear' },
     waves: [
       {
         at: 0,
@@ -140,7 +140,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'lancer_duel', name: 'Lancers', type: 'combat', weight: 11,
+    id: 'lancer_duel', name: 'Lancers', type: 'hostiles', weight: 11,
     minThreat: 3, maxThreat: 9,
     blurb: 'Lancers copy your vertical position. Artillery fires where you were going.',
     intro: 'You cannot shake them by climbing. They climb with you, and the heavy shells land where that leaves you.',
@@ -154,7 +154,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'zealot_run', name: 'Zealot Run', type: 'swarm', weight: 11,
+    id: 'zealot_run', name: 'Zealot Run', type: 'hostiles', weight: 11,
     minThreat: 3, maxThreat: 10,
     blurb: 'Suicide drones from the edges. Gunships hold the ground they push you onto.',
     intro: 'The Zealots do not want to trade. They want you standing still for half a second.',
@@ -169,7 +169,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'raider_boarding', name: 'Boarding Run', type: 'combat', weight: 11,
+    id: 'raider_boarding', name: 'Boarding Run', type: 'hostiles', weight: 11,
     minThreat: 4, maxThreat: 11,
     blurb: 'Raiders close to shotgun range on purpose. Seekers make backing off cost the same.',
     intro: 'They are not paid to shoot from distance. Nothing out here is.',
@@ -189,7 +189,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'scrap_court', name: 'Scrap Court', type: 'combat', weight: 10,
+    id: 'scrap_court', name: 'Scrap Court', type: 'hostiles', weight: 10,
     minThreat: 4, maxThreat: 12,
     blurb: 'Turret pods welded into a drifting minefield. Raiders arrive while you are threading it.',
     intro: 'Someone made a room out of wreckage and left guns in the walls.',
@@ -210,11 +210,11 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'holding_pattern', name: 'Holding Pattern', type: 'combat', weight: 10,
+    id: 'holding_pattern', name: 'Holding Pattern', type: 'hostiles', weight: 10,
     minThreat: 4, maxThreat: 11,
     blurb: 'Your drive is spooling. Nothing here has to die — you only have to still be here.',
     intro: 'Seventy seconds. The field never empties, and a Tender arrives halfway through to make sure of it.',
-    objective: { kind: 'survive', seconds: 70 },
+    objective: { kind: 'clear' },
     waves: [
       { at: 0, spawn: [{ budget: 0.4, pool: ['picket', 'wasp'], formation: 'arc', delay: 0.2 }] },
       { at: 14, spawn: [{ budget: 0.45, pool: ['interceptor', 'seeker'], formation: 'pincer', delay: 0.2 }] },
@@ -229,7 +229,7 @@ export const COMBAT_ENCOUNTERS = [
   // MID BAND (5–14) — auras, spawners, ships that must be killed in an order.
   // -------------------------------------------------------------------------
   {
-    id: 'aegis_battery', name: 'Aegis Battery', type: 'combat', weight: 11,
+    id: 'aegis_battery', name: 'Aegis Battery', type: 'hostiles', weight: 11,
     minThreat: 5, maxThreat: 12,
     blurb: 'Artillery sat behind an Aegis Pod. Nothing dies until the pod does.',
     intro: 'The pod shelters everything near it and refuses to come to you. The guns do not have to move at all.',
@@ -255,7 +255,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'fighter_wing', name: 'Fighter Wing', type: 'combat', weight: 11,
+    id: 'fighter_wing', name: 'Fighter Wing', type: 'hostiles', weight: 11,
     minThreat: 5, maxThreat: 12,
     blurb: 'Fighters hold the far side laying down spread fire. Interceptors dive through it.',
     intro: 'The Fighters want you pinned against the left wall. The Interceptors are what happens if you go.',
@@ -275,7 +275,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'bomblet_lattice', name: 'Lattice', type: 'swarm', weight: 10,
+    id: 'bomblet_lattice', name: 'Lattice', type: 'hostiles', weight: 10,
     minThreat: 5, maxThreat: 13,
     blurb: 'Bomblet Carriers build a mine lattice while drones push you into it.',
     intro: 'Every second you spend not killing carriers, the playable part of the field gets smaller.',
@@ -301,7 +301,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'bulwark_advance', name: 'Bulwark Advance', type: 'combat', weight: 11,
+    id: 'bulwark_advance', name: 'Bulwark Advance', type: 'hostiles', weight: 11,
     minThreat: 6, maxThreat: 14,
     blurb: 'Two Bulwarks abreast, unhurried and armoured. Wasps come from above and below.',
     intro: 'They do not manoeuvre. They advance. Cover out here is a thing you make, not a thing you find.',
@@ -322,11 +322,11 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'relay_strike', name: 'Relay Strike', type: 'combat', weight: 10,
+    id: 'relay_strike', name: 'Relay Strike', type: 'hostiles', weight: 10,
     minThreat: 6, maxThreat: 14,
     blurb: 'Three anchored relays calling in the patrol. Kill the relays; the patrol is optional.',
     intro: 'The pods sit still and talk. Everything arriving is because of them, and none of it has to be fought.',
-    objective: { kind: 'destroy', tag: 'relay' },
+    objective: { kind: 'clear' },
     waves: [
       {
         at: 0,
@@ -343,7 +343,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'interceptor_storm', name: 'Relay Storm', type: 'swarm', weight: 10,
+    id: 'interceptor_storm', name: 'Relay Storm', type: 'hostiles', weight: 10,
     minThreat: 6, maxThreat: 14,
     blurb: 'Interceptors in relays past two Artillery platforms firing where you have to be.',
     intro: 'The Interceptors sweep through and come back around. The guns cover the only place their pass leaves you.',
@@ -378,11 +378,11 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'phantom_hunt', name: 'Ghost Screen', type: 'combat', weight: 9,
+    id: 'phantom_hunt', name: 'Ghost Screen', type: 'hostiles', weight: 9,
     minThreat: 7, maxThreat: 15,
     blurb: 'Two Phantoms hidden in a drone screen. They are the only things that matter.',
     intro: 'They cloak every four seconds. The drones are cover, and the drones do not have to die.',
-    objective: { kind: 'destroy', tag: 'ghost' },
+    objective: { kind: 'clear' },
     waves: [
       {
         at: 0,
@@ -398,7 +398,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'shielded_swarm', name: 'Shielded Cloud', type: 'swarm', weight: 9,
+    id: 'shielded_swarm', name: 'Shielded Cloud', type: 'hostiles', weight: 9,
     minThreat: 7, maxThreat: 15,
     blurb: 'Aegis Pods buried in a drone cloud. Everything is twice the work until you dig them out.',
     intro: 'The pods run from you at exactly the speed of the cloud they are hiding in.',
@@ -424,7 +424,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'missile_screen', name: 'Missile Screen', type: 'combat', weight: 10,
+    id: 'missile_screen', name: 'Missile Screen', type: 'hostiles', weight: 10,
     minThreat: 8, maxThreat: 16,
     blurb: 'Homing fire from the back of the field. A mine drift across the front of it.',
     intro: 'The missiles make you move. The mines decide where moving is allowed.',
@@ -450,7 +450,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'hive_break', name: 'Hive', type: 'swarm', weight: 9,
+    id: 'hive_break', name: 'Hive', type: 'hostiles', weight: 9,
     minThreat: 9, maxThreat: 18,
     blurb: 'Two Tenders and a Battle Carrier, all producing faster than you can clear.',
     intro: 'Nothing here is dangerous on its own. All of it is still here in two minutes if you fight the output instead of the source.',
@@ -470,7 +470,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'sentinel_cordon', name: 'Sentinel Cordon', type: 'combat', weight: 10,
+    id: 'sentinel_cordon', name: 'Sentinel Cordon', type: 'hostiles', weight: 10,
     minThreat: 9, maxThreat: 17,
     blurb: 'Anchored Sentinels throwing overlapping rings. There is a rhythm to the gaps.',
     intro: 'They do not move and they do not aim. They do not have to; the rings intersect where you are standing.',
@@ -523,11 +523,11 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'carrier_cull', name: 'Carrier Cull', type: 'combat', weight: 9,
+    id: 'carrier_cull', name: 'Carrier Cull', type: 'hostiles', weight: 9,
     minThreat: 11, maxThreat: 20,
     blurb: 'Two Battle Carriers bleeding Interceptors. The swarm is not the fight.',
     intro: 'The escorts will outlive you if you let them. The carriers will not, if you can reach them.',
-    objective: { kind: 'destroy', tag: 'carrier' },
+    objective: { kind: 'clear' },
     waves: [
       {
         at: 0,
@@ -569,7 +569,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'splinter_storm', name: 'Splinter Storm', type: 'swarm', weight: 8,
+    id: 'splinter_storm', name: 'Splinter Storm', type: 'hostiles', weight: 8,
     minThreat: 12, maxThreat: 20,
     blurb: 'Splitters under an Aegis aura. Slower to kill, and killing them doubles them.',
     intro: 'Every one you break makes two more, and the pods make breaking them take longer.',
@@ -590,7 +590,7 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'gun_line', name: 'Gun Line', type: 'combat', weight: 9,
+    id: 'gun_line', name: 'Gun Line', type: 'hostiles', weight: 9,
     minThreat: 13, maxThreat: 20,
     blurb: 'Artillery and Sentinels dug in behind a Bulwark screen. The screen is slow; the guns are not.',
     intro: 'Three hulls of armour between you and the things doing the damage, and they are walking toward you.',
@@ -611,11 +611,11 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'siege_break', name: 'Siege', type: 'combat', weight: 8,
+    id: 'siege_break', name: 'Siege', type: 'hostiles', weight: 8,
     minThreat: 13, maxThreat: 20,
     blurb: 'You will not clear this. You only have to be alive at the end of it.',
     intro: 'Eighty seconds under a siege line. Killing things buys room, not victory.',
-    objective: { kind: 'survive', seconds: 80 },
+    objective: { kind: 'clear' },
     waves: [
       {
         at: 0,

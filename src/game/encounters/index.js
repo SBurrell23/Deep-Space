@@ -23,13 +23,16 @@ import { ADVANCED_ENCOUNTERS } from './advanced.js';
 
 /** Every encounter type, and whether it is played in the action sim. */
 export const ENCOUNTER_TYPES = {
-  combat: { action: true, icon: 'node_combat', label: 'Hostiles' },
-  swarm: { action: true, icon: 'node_swarm', label: 'Swarm' },
+  // Hostiles is every straight fight: what used to be Hostiles, Swarm and
+  // Pursuit. Three node types that all came down to "ships are shooting at
+  // you" made the map look varied while playing identically, and one of them
+  // could be won by running out a clock rather than winning. A Hostiles node
+  // means the same thing every time: destroy everything that turns up.
+  hostiles: { action: true, icon: 'node_swarm', label: 'Hostiles' },
   elite: { action: true, icon: 'node_boss', label: 'Elite' },
   asteroid: { action: true, icon: 'node_asteroid', label: 'Debris Field' },
   tunnel: { action: true, icon: 'node_tunnel', label: 'Passage' },
   survival: { action: true, icon: 'node_survival', label: 'Hold Out' },
-  chase: { action: true, icon: 'node_chase', label: 'Pursuit' },
   derelict: { action: true, icon: 'node_derelict', label: 'Derelict' },
   boss: { action: true, icon: 'node_boss', label: 'Capital Ship' },
   masterfleet: { action: true, icon: 'node_masterfleet', label: 'The Master Fleet' },
