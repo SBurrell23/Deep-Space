@@ -129,6 +129,27 @@ everything it earned did not have an economy, it had a scoreboard.
 Every one of those numbers lives in `src/game/balance.js`, with the reasoning
 next to it, and can be re-measured or swept from `tests/`.
 
+**v2.9: the thing hitting you was not the guns.**
+
+Four of the ten swarm archetypes — seeker, zealot, drifting_mine and aegis_pod
+— had no weapon at all. Their entire way of interacting with the player was to
+fly into them. Measured, collisions were doing 17-47% of all damage taken. So
+the part of the fight that hurt was not the shooting you can read and dodge; it
+was 16x16 specks moving at up to 205px/sec against a player who moves at
+239-325, touching you.
+
+| | before | after |
+|---|---|---|
+| swarm ship size | 16x16, drawn 1x | **28-34px, drawn 2x** |
+| swarm top speed | 205 px/s | **158 px/s** |
+| damage from collisions | 17-47% | **2-7%** |
+| damage from guns | 53-83% | **79-87%** |
+| gunless archetypes | 4 of 10 | **2 of 10** (a mine and a support pod) |
+
+The Seeker Pod has a gun now. The Zealot is the one dedicated rammer left and
+is big, slow and obvious about it — a threat you see coming. Everything in the
+class costs more, so a fight fields fewer of them.
+
 **v2.8 found what was actually wrong, which was not any of the numbers.**
 
 Enemy shots travelled at 260-430 px/s against a player who moves at 239-325.

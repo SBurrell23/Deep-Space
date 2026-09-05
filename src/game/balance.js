@@ -42,7 +42,7 @@ export const BALANCE = {
      * difficulty — there is nothing to dodge when everything is a pinprick and
      * there are too many to see. Fewer guns, each one worth avoiding.
      */
-    damageScale: 3.6,
+    damageScale: 4.7,
 
     /**
      * Projectile physics — the thing that was actually wrong.
@@ -131,6 +131,18 @@ export const BALANCE = {
      */
     earlyGrace: 0.62,
     earlyGraceUntil: 4,
+
+    /**
+     * Global multiplier on ramming damage.
+     *
+     * Bumping into a ship was doing 17-47% of all the damage a fight dealt,
+     * and four of the ten swarm archetypes had no guns at all — flying into
+     * you was their entire design. So the thing that hurt was not the shooting
+     * you can read and dodge, it was small fast objects touching you, which is
+     * both unreadable and unfun. A collision is a scrape now; the guns are the
+     * fight.
+     */
+    contactScale: 0.34,
 
     /** Per-threat-level growth of what a kill pays. */
     rewardGrowth: 0.22,

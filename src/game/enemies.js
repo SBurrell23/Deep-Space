@@ -15,60 +15,66 @@ export const ENEMY_CLASSES = ['swarm', 'mid', 'heavy', 'elite'];
 
 export const ENEMIES = {
   // -------------------------------------------------------------------------
-  // SWARM — 16x16, individually trivial, dangerous in numbers.
+  // SWARM — small ships, drawn at 2x so they are actually visible, and armed.
+  //
+  // These used to be 16x16 specks at up to 205px/sec against a player who moves
+  // at 239-325, and four of the ten could not shoot at all: seeker, zealot,
+  // drifting_mine and aegis_pod interacted with you only by flying into you.
+  // What hit you was therefore never the guns you could read and dodge, it was
+  // a small fast object touching you. Bigger, slower, fewer, and armed.
   // -------------------------------------------------------------------------
   picket: {
-    id: 'picket', name: 'Picket Drone', cls: 'swarm', sprite: 'sw_drone', w: 16, h: 16,
-    hull: 9, shield: 0, speed: 118, move: 'sine', fire: 'forward', fireRate: 1.1,
-    bulletDamage: 5, bulletSpeed: 260, contact: 6, xp: 4, credits: 2, cost: 1,
+    id: 'picket', name: 'Picket Drone', cls: 'swarm', sprite: 'sw_drone', w: 30, h: 30, scale: 2,
+    hull: 11, shield: 0, speed: 96, move: 'sine', fire: 'forward', fireRate: 1.1,
+    bulletDamage: 7, bulletSpeed: 260, contact: 6, xp: 5, credits: 3, cost: 1.7,
   },
   wasp: {
-    id: 'wasp', name: 'Wasp', cls: 'swarm', sprite: 'sw_wasp', w: 16, h: 16,
-    hull: 7, shield: 0, speed: 175, move: 'zigzag', fire: 'single', fireRate: 0.9,
-    bulletDamage: 5, bulletSpeed: 330, contact: 6, xp: 4, credits: 2, cost: 1,
+    id: 'wasp', name: 'Wasp', cls: 'swarm', sprite: 'sw_wasp', w: 28, h: 28, scale: 2,
+    hull: 9, shield: 0, speed: 140, move: 'zigzag', fire: 'single', fireRate: 0.9,
+    bulletDamage: 7, bulletSpeed: 330, contact: 6, xp: 5, credits: 3, cost: 1.7,
   },
   seeker: {
-    id: 'seeker', name: 'Seeker Pod', cls: 'swarm', sprite: 'sw_seeker', w: 16, h: 16,
-    hull: 12, shield: 0, speed: 130, move: 'charge', fire: 'none', fireRate: 0,
-    contact: 13, xp: 5, credits: 2, cost: 1.2,
+    id: 'seeker', name: 'Seeker Pod', cls: 'swarm', sprite: 'sw_seeker', w: 30, h: 30, scale: 2,
+    hull: 14, shield: 0, speed: 104, move: 'hover', fire: 'single', fireRate: 0.75,
+    bulletDamage: 10, bulletSpeed: 300, contact: 8, xp: 6, credits: 3, cost: 1.9,
   },
   zealot: {
-    id: 'zealot', name: 'Zealot', cls: 'swarm', sprite: 'sw_kamikaze', w: 16, h: 16,
-    hull: 8, shield: 0, speed: 165, move: 'kamikaze', fire: 'none', fireRate: 0,
-    contact: 22, xp: 6, credits: 3, cost: 1.5, explodes: { radius: 74, damage: 16 },
+    id: 'zealot', name: 'Zealot', cls: 'swarm', sprite: 'sw_kamikaze', w: 34, h: 34, scale: 2,
+    hull: 22, shield: 0, speed: 128, move: 'kamikaze', fire: 'none', fireRate: 0,
+    contact: 26, xp: 9, credits: 5, cost: 3.4, explodes: { radius: 74, damage: 18 },
   },
   drifting_mine: {
-    id: 'drifting_mine', name: 'Drifting Mine', cls: 'swarm', sprite: 'sw_mine', w: 16, h: 16,
-    hull: 6, shield: 0, speed: 60, move: 'drift', fire: 'none', fireRate: 0,
-    contact: 26, xp: 3, credits: 2, cost: 0.9, explodes: { radius: 90, damage: 20 },
+    id: 'drifting_mine', name: 'Drifting Mine', cls: 'swarm', sprite: 'sw_mine', w: 34, h: 34, scale: 2,
+    hull: 10, shield: 0, speed: 34, move: 'drift', fire: 'none', fireRate: 0,
+    contact: 30, xp: 4, credits: 3, cost: 1.6, explodes: { radius: 90, damage: 22 },
   },
   interceptor: {
-    id: 'interceptor', name: 'Interceptor', cls: 'swarm', sprite: 'sw_interceptor', w: 16, h: 16,
-    hull: 11, shield: 0, speed: 205, move: 'swoop', fire: 'single', fireRate: 1.4,
-    bulletDamage: 6, bulletSpeed: 350, contact: 8, xp: 6, credits: 3, cost: 1.4,
+    id: 'interceptor', name: 'Interceptor', cls: 'swarm', sprite: 'sw_interceptor', w: 28, h: 28, scale: 2,
+    hull: 13, shield: 0, speed: 158, move: 'swoop', fire: 'single', fireRate: 1.4,
+    bulletDamage: 9, bulletSpeed: 350, contact: 7, xp: 7, credits: 4, cost: 2.1,
   },
   aegis_pod: {
-    id: 'aegis_pod', name: 'Aegis Pod', cls: 'swarm', sprite: 'sw_shielder', w: 16, h: 16,
-    hull: 16, shield: 10, speed: 95, move: 'skittish', fire: 'none', fireRate: 0,
-    contact: 5, xp: 8, credits: 5, cost: 2.2,
+    id: 'aegis_pod', name: 'Aegis Pod', cls: 'swarm', sprite: 'sw_shielder', w: 30, h: 30, scale: 2,
+    hull: 20, shield: 12, speed: 78, move: 'skittish', fire: 'none', fireRate: 0,
+    contact: 4, xp: 9, credits: 6, cost: 2.6,
     // Shelters everything nearby — kill it first or the fight drags.
     aura: { kind: 'shield', radius: 190, amount: 0.55 },
   },
   bomblet: {
-    id: 'bomblet', name: 'Bomblet Carrier', cls: 'swarm', sprite: 'sw_bomber', w: 16, h: 16,
-    hull: 14, shield: 0, speed: 90, move: 'hover', fire: 'mine_drop', fireRate: 0.5,
-    bulletDamage: 9, contact: 7, xp: 6, credits: 3, cost: 1.6,
+    id: 'bomblet', name: 'Bomblet Carrier', cls: 'swarm', sprite: 'sw_bomber', w: 30, h: 30, scale: 2,
+    hull: 17, shield: 0, speed: 74, move: 'hover', fire: 'mine_drop', fireRate: 0.5,
+    bulletDamage: 12, contact: 6, xp: 7, credits: 4, cost: 2.1,
   },
   splitter: {
-    id: 'splitter', name: 'Splitter', cls: 'swarm', sprite: 'sw_splitter', w: 16, h: 16,
-    hull: 16, shield: 0, speed: 105, move: 'sine', fire: 'forward', fireRate: 0.8,
-    bulletDamage: 6, bulletSpeed: 250, contact: 7, xp: 5, credits: 3, cost: 1.6,
+    id: 'splitter', name: 'Splitter', cls: 'swarm', sprite: 'sw_splitter', w: 32, h: 32, scale: 2,
+    hull: 19, shield: 0, speed: 86, move: 'sine', fire: 'forward', fireRate: 0.8,
+    bulletDamage: 9, bulletSpeed: 250, contact: 6, xp: 6, credits: 4, cost: 2.1,
     splits: { into: 'picket', count: 2 },
   },
   turret_pod: {
-    id: 'turret_pod', name: 'Turret Pod', cls: 'swarm', sprite: 'sw_turretpod', w: 16, h: 16,
-    hull: 20, shield: 0, speed: 40, move: 'guard', fire: 'sweep', fireRate: 3.2,
-    bulletDamage: 6, bulletSpeed: 300, contact: 6, xp: 6, credits: 4, cost: 1.5,
+    id: 'turret_pod', name: 'Turret Pod', cls: 'swarm', sprite: 'sw_turretpod', w: 30, h: 30, scale: 2,
+    hull: 24, shield: 0, speed: 34, move: 'guard', fire: 'sweep', fireRate: 3.2,
+    bulletDamage: 8, bulletSpeed: 300, contact: 5, xp: 7, credits: 5, cost: 2.0,
   },
 
   // -------------------------------------------------------------------------
@@ -256,7 +262,8 @@ export function scaleEnemy(def, threat) {
     hull: Math.round(def.hull * tough * hullMul),
     shield: Math.round((def.shield || 0) * tough * hullMul),
     bulletDamage: (def.bulletDamage || 0) * dmgMul * DAMAGE_SCALE,
-    contact: (def.contact || 0) * dmgMul * DAMAGE_SCALE,
+    // Ramming is a scrape, not the fight. See balance.js.
+    contact: (def.contact || 0) * dmgMul * DAMAGE_SCALE * ENEMY_TUNING.contactScale,
     explodes: def.explodes
       ? { ...def.explodes, damage: def.explodes.damage * dmgMul * DAMAGE_SCALE }
       : null,

@@ -718,7 +718,10 @@ function makeEnemy(world, spec) {
     name: elite ? `Elite ${def.name}` : def.name,
     x: spec.x, y: spec.y,
     vx: 0, vy: 0,
-    drawScale: (elite || spec.def.isBoss) ? 2 : 1,
+    // An archetype can ask to be drawn bigger than its art. The swarm ships are
+    // 16px sprites rendered at 2x: at 1x they were specks you could not see
+    // coming, let alone shoot on purpose.
+    drawScale: (elite || spec.def.isBoss) ? 2 : (def.scale || 1),
     r: Math.max(def.w, def.h) * 0.36 * ((elite || spec.def.isBoss) ? 1.8 : 1),
     w: def.w, h: def.h,
     sprite: def.sprite,
