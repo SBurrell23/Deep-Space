@@ -68,7 +68,7 @@ export function startRun({ shipId = 'kestrel', seed = null, profile = null } = {
       encountersWon: 0, encountersFled: 0, bossesKilled: 0, shotsFired: 0,
       shotsHit: 0, dashes: 0, abilitiesUsed: 0, deepestRing: 0, anomaliesResolved: 0,
       hullRepaired: 0, terrainHits: 0, perfectClears: 0,
-      rammed: 0, derelictsCleared: 0, everCritical: false, tradesMade: 0,
+      rammed: 0, holdsCleared: 0, everCritical: false, tradesMade: 0,
       shopsVisited: 0, tunnelsCleared: 0, bossesMet: 0,
     },
   };
@@ -357,7 +357,7 @@ export function collectRewards(run, { take = null } = {}) {
   // Node-type tallies, for the achievements that care what you cleared and not
   // just how many.
   const kind = run.encounter?.type || run.node?.type;
-  if (kind === 'derelict') run.stats.derelictsCleared++;
+  if (kind === 'survival') run.stats.holdsCleared++;
   if (kind === 'tunnel') run.stats.tunnelsCleared++;
   if (kind === 'boss') run.stats.bossesMet++;
 

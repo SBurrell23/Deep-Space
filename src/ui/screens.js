@@ -294,7 +294,7 @@ export function renderHelp() {
 
   body.append(
     section('The run',
-      p('You start at the centre of a web of star systems and fly outward. Every node you jump to is one encounter — a fight, a hazard, a derelict, a trading post, or something stranger.'),
+      p('You start at the centre of a web of star systems and fly outward. Every node you jump to is one encounter — a duel with a named ship, a hold-out, a hazard, a trading post, or something stranger.'),
       p('The further out you go, the higher the threat. Each node shows its threat level, coloured against your own: green is even odds, red is not. You can absolutely fly somewhere that kills you.'),
       p('Nodes pay out once. Going back over old ground gets you nothing, so the run only moves one way: outward.'),
       p('Fog hides everything more than a few jumps from somewhere you have been. Get deep enough and the Master Fleet appears on the rim — level 20, and the end of the run if you can break it.'),

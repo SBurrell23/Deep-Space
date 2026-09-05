@@ -188,11 +188,19 @@ export const DUEL_ABILITIES = {
       // The curtain is laid between the caster and the player, so retreating to
       // maximum range means retreating through it. Camping the back wall is the
       // failure state this ability exists to close.
-      const lane = clamp(Math.min(api.e.x - 60, (api.e.x + api.player.x) / 2), 80, w.w - 40);
+      // Between the two of you on whichever side the player is, rather than
+      // always to the caster's left: a screen laid away from the player is one
+      // they can sit behind and ignore.
+      const behind = api.player.x > api.e.x;
+      const lane = clamp(
+        behind ? Math.max(api.e.x + 60, (api.e.x + api.player.x) / 2)
+          : Math.min(api.e.x - 60, (api.e.x + api.player.x) / 2),
+        80, w.w - 40,
+      );
       const rows = 7;
       api.shoot(Array.from({ length: rows }, (_, i) => ({
         x: lane, y: (i + 0.5) * (w.h / rows),
-        angle: Math.PI, speed: 240, sprite: 'eb_flak',
+        angle: behind ? 0 : Math.PI, speed: 240, sprite: 'eb_flak',
         damage: api.dmg * 0.8, radius: 34, life: 4.5,
         delay: 0.1 * (i % 2),
       })));

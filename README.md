@@ -33,7 +33,7 @@ Die and the run is gone for good.
 - Scrolling tunnel terrain with procedurally generated corridors, and destructible asteroid fields
 
 **Content**
-- **246 encounters**: 100 one-on-one duels plus elites, debris fields, tunnels, survival holds, derelicts, capital ships and a three-stage Master Fleet finale
+- **250 encounters**: 100 one-on-one duels, 16 hold-outs, 52 debris fields, elites, tunnels, capital ships and a three-stage Master Fleet finale
 - **39 hand-written anomalies** — text encounters with gated choices and weighted outcomes
 - 10 hulls, each with a distinct attribute spread, starting loadout and a perk that changes how it is flown
 - 71 achievements, six of which unlock hulls
@@ -129,6 +129,39 @@ everything it earned did not have an economy, it had a scoreboard.
 
 Every one of those numbers lives in `src/game/balance.js`, with the reasoning
 next to it, and can be re-measured or swept from `tests/`.
+
+**v3.1: the map is duels and hold-outs now.**
+
+Three changes to what a run is made of, and one bug that made a whole ability
+class free to ignore.
+
+* **The Derelict type is retired.** All six were clear-the-field fights that
+  happened to be set in a wreck, which is scenery rather than a different
+  question. They are hold-outs now — which is what their own prose always
+  described — and they keep the salvage payout that made them worth the
+  detour, because they were the map's money and deleting them would have
+  quietly removed most of it. Four new hold-outs join them, for sixteen.
+* **The node mix moved.** Hostiles 30-34% -> **37-43%**, hold-outs 5-7% ->
+  **11-13%**, debris fields 14-20% -> **9-12%**. Rocks-plus-swarm is the least
+  demanding thing on the map and it did not deserve a fifth of it.
+* **Hold-outs were free.** 0-10% of the hull bar and not one death across a
+  hundred and twenty of them, because their budget discount was set when they
+  were 6% of the map. At 1.5 a hold costs 12% and can occasionally kill, and
+  the screen stays readable: 0.9 enemy bullets alive on average, median peak
+  of seven.
+* **Early duels were a grind.** The hull pool is sized for a player who has
+  levelled and rolled gear; in the first two rings they have neither. Ramped
+  to 60% at threat 1 and back to full by threat 6 — threat 1 is **29s / 6%**
+  now, against 41s before, building to 45s / 12% by threat 8.
+
+And the bug: **you could stand behind a wall ship and nullify it entirely.**
+`wall`, `double_wall`, `closing_wall`, `forward`, `mine_drop`, `sweep` and Flak
+Curtain all fired hard left, an assumption from when enemies streamed in from
+the right and the player was never behind one. In a duel the player circles, so
+a Barrier Wall ship would spend the whole fight sealing empty space. They fire
+down the lane toward the player now, whichever side that is — measured, a wall
+ship hits a flanking player 0.86-1.52x as hard as one in front, where it used
+to be zero.
 
 **v3.0: a Hostiles node is one ship now.**
 

@@ -275,6 +275,12 @@ export function scaleEnemy(def, threat) {
   // measured effective hull (1.050/level), or the fight stops being one.
   const tough = ENEMY_TUNING.toughness[def.cls] ?? 2.5;
   const hullMul = Math.pow(duel ? DUEL_TUNING.hullGrowth : ENEMY_TUNING.hullGrowth, t - 1);
+  // A first-ring duel is where the player learns what a duelist is. That wants
+  // a short fight, and a full-sized pool against a starting loadout is not one.
+  const duelGrace = duel && t < DUEL_TUNING.earlyHullUntil
+    ? DUEL_TUNING.earlyHull
+      + (1 - DUEL_TUNING.earlyHull) * ((t - 1) / (DUEL_TUNING.earlyHullUntil - 1))
+    : 1;
   const dmgMul = Math.pow(duel ? DUEL_TUNING.damageGrowth : ENEMY_TUNING.damageGrowth, t - 1);
   const rewardMul = 1 + ENEMY_TUNING.rewardGrowth * (t - 1);
   // A bare starting hull meets threat 1-3 with no gear and no levels spent.
@@ -284,8 +290,8 @@ export function scaleEnemy(def, threat) {
   const DAMAGE_SCALE = ENEMY_TUNING.damageScale * grace;
   return {
     ...def,
-    hull: Math.round(def.hull * tough * hullMul),
-    shield: Math.round((def.shield || 0) * tough * hullMul),
+    hull: Math.round(def.hull * tough * hullMul * duelGrace),
+    shield: Math.round((def.shield || 0) * tough * hullMul * duelGrace),
     bulletDamage: (def.bulletDamage || 0) * dmgMul * DAMAGE_SCALE,
     // Ramming is a scrape, not the fight. See balance.js.
     contact: (def.contact || 0) * dmgMul * DAMAGE_SCALE * ENEMY_TUNING.contactScale,

@@ -269,6 +269,19 @@ export function aimAt(e, world) {
   return Math.atan2(world.player.y - e.y, world.player.x - e.x);
 }
 
+/**
+ * Which way "down the lane" points: at the player, horizontally.
+ *
+ * Everything that fires a wall or a screen used to assume the lane pointed
+ * left, because enemies arrived from the right in a stream and the player was
+ * never behind one. In a duel the player circles, and a wall fired away from
+ * them is not a wall: you could sit off a Barrier Wall ship's stern and watch
+ * it spend the whole fight sealing empty space.
+ */
+export function laneAngle(e, world) {
+  return world.player.x <= e.x ? Math.PI : 0;
+}
+
 export const FIRE_PATTERNS = {
   none: () => [],
 
@@ -276,7 +289,7 @@ export const FIRE_PATTERNS = {
   single: (e, world) => [bullet(e, aimAt(e, world))],
 
   /** Straight down the lane, unaimed — cheap and readable. */
-  forward: (e) => [bullet(e, Math.PI)],
+  forward: (e, world) => [bullet(e, laneAngle(e, world))],
 
   /** Three aimed shots in a tight fan. */
   spread3: (e, world) => {
@@ -325,10 +338,11 @@ export const FIRE_PATTERNS = {
   wall: (e, world) => {
     const rows = 9;
     const gap = Math.floor((e.mem.rng ? e.mem.rng() : Math.random()) * rows);
+    const lane = laneAngle(e, world);
     const out = [];
     for (let i = 0; i < rows; i++) {
       if (i === gap || i === gap + 1) continue;
-      out.push(bullet(e, Math.PI, {
+      out.push(bullet(e, lane, {
         y: (i + 0.5) * (world.h / rows),
         x: e.x,
         sprite: 'eb_wave',
@@ -381,13 +395,19 @@ export const FIRE_PATTERNS = {
 
   /** A sweeping arc, like a turret traversing. */
   sweep: (e, world) => {
-    e.mem.sweepA = e.mem.sweepA === undefined ? Math.PI - 0.6 : e.mem.sweepA + 0.16;
-    if (e.mem.sweepA > Math.PI + 0.6) e.mem.sweepA = Math.PI - 0.6;
+    // Re-aimed at the start of each traverse rather than on every shot: a
+    // turret that tracks perfectly is not a sweep, and one bolted to the left
+    // is scenery the moment the player gets behind it.
+    if (e.mem.sweepA === undefined || e.mem.sweepA > (e.mem.sweepC ?? 0) + 0.6) {
+      e.mem.sweepC = aimAt(e, world);
+      e.mem.sweepA = e.mem.sweepC - 0.6;
+    }
+    e.mem.sweepA += 0.16;
     return [bullet(e, e.mem.sweepA)];
   },
 
   /** Drops a mine that sits and waits. */
-  mine_drop: (e) => [bullet(e, Math.PI, {
+  mine_drop: (e, world) => [bullet(e, laneAngle(e, world), {
     speed: 30, sprite: 'sw_mine', life: 14, mine: true,
     damage: (e.bulletDamage || 8) * 2, radius: 70, proximity: 54,
   })],
@@ -470,13 +490,14 @@ export const FIRE_PATTERNS = {
     const gapA = Math.floor(rnd() * rows);
     let gapB = Math.floor(rnd() * rows);
     if (Math.abs(gapB - gapA) < 2) gapB = (gapA + 4) % rows;
+    const lane = laneAngle(e, world);
     const out = [];
     for (let i = 0; i < rows; i++) {
       if (i !== gapA && i !== gapA + 1) {
-        out.push(bullet(e, Math.PI, { y: (i + 0.5) * (world.h / rows), x: e.x, sprite: 'eb_wave' }));
+        out.push(bullet(e, lane, { y: (i + 0.5) * (world.h / rows), x: e.x, sprite: 'eb_wave' }));
       }
       if (i !== gapB && i !== gapB + 1) {
-        out.push(bullet(e, Math.PI, {
+        out.push(bullet(e, lane, {
           y: (i + 0.5) * (world.h / rows), x: e.x, sprite: 'eb_wave', delay: 0.85,
         }));
       }
@@ -486,11 +507,12 @@ export const FIRE_PATTERNS = {
 
   /** Closes in from the top and bottom edges, leaving the middle last. */
   closing_wall: (e, world) => {
+    const lane = laneAngle(e, world);
     const out = [];
     for (let i = 0; i < 5; i++) {
       const t = i * 0.14;
-      out.push(bullet(e, Math.PI, { y: 20 + i * 26, x: e.x, delay: t, sprite: 'eb_wave' }));
-      out.push(bullet(e, Math.PI, { y: world.h - 20 - i * 26, x: e.x, delay: t, sprite: 'eb_wave' }));
+      out.push(bullet(e, lane, { y: 20 + i * 26, x: e.x, delay: t, sprite: 'eb_wave' }));
+      out.push(bullet(e, lane, { y: world.h - 20 - i * 26, x: e.x, delay: t, sprite: 'eb_wave' }));
     }
     return out;
   },

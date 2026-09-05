@@ -501,74 +501,98 @@ export const HAZARD_ENCOUNTERS = [
   },
 
   // =========================================================================
-  // DERELICT — it looks abandoned. Each of these opens with a beat you can
-  // read before the ambush lands, so the surprise is a surprise and not a hit.
+  // HOLD-OUTS, second set — the wrecks.
+  //
+  // These were the Derelict node type, which is gone: six clear-the-field
+  // fights that happened to be set in a wreck, which is scenery rather than a
+  // different question. Held instead of cleared they finally play like their
+  // own description — something waking up around you while you stay put — and
+  // they keep the salvage payout that made them worth the detour.
   // =========================================================================
 
   {
-    // Idea: the introduction to the word "derelict". Two drifting mines are the
-    // warning; the drones behind the bulkhead are the lesson.
-    id: 'cold_hulk', name: 'Cold Hulk', type: 'derelict', weight: 11,
+    // Idea: the introduction. Two drifting mines are the warning; the drones
+    // behind the bulkhead are the lesson, and the bay mouth is the only place
+    // the cutting rig will reach.
+    id: 'cold_hulk', name: 'Cold Hulk', type: 'survival', weight: 11,
     minThreat: 1, maxThreat: 6,
-    blurb: 'A dead freighter with its bay open. Two mines drifting in the mouth.',
-    intro: 'No power, no signal, no distress call. Somebody left the bay doors open.',
-    objective: { kind: 'clear' },
+    blurb: 'Hold the open bay of a dead freighter for forty-five seconds.',
+    intro:
+      'No power, no signal, no distress call, and somebody left the bay doors open. '
+      + 'The rig needs three quarters of a minute clamped to the mouth of it. '
+      + 'Whatever is inside has that long to reach you.',
+    objective: { kind: 'survive', seconds: 45 },
     waves: [
       { at: 0, spawn: [{ id: 'drifting_mine', count: 2, formation: 'line', delay: 0.6 }] },
       { at: 7, spawn: [{ id: 'picket', count: 4, formation: 'ambush', delay: 0.3 }] },
-      { after: 'cleared', spawn: [{ budget: 0.6, pool: ['picket', 'wasp', 'turret_pod'], formation: 'arc', delay: 0.3 }] },
+      { at: 18, spawn: [{ budget: 0.4, pool: ['picket', 'wasp'], formation: 'arc', delay: 0.3 }] },
+      { at: 30, spawn: [{ budget: 0.5, pool: ['picket', 'wasp', 'turret_pod'], formation: 'random', delay: 0.3 }] },
+      { at: 38, spawn: [{ budget: 0.35, pool: ['interceptor'], formation: 'pincer', delay: 0.25 }] },
     ],
     rewards: { xpMult: 0.9, creditsMult: 1.5, crates: 2 },
   },
 
   {
     // Idea: a genuinely profitable wreck with a thin guard. Low xp, real money.
-    // The node the player takes when the hull bar is the problem.
-    id: 'salvage_run', name: 'Salvage Run', type: 'derelict', weight: 10,
-    minThreat: 2, maxThreat: 8,
-    blurb: 'An intact cargo spine. A small automated guard, and a lot of crates.',
-    intro: 'Sealed containers, still pressurised. The guard is old and there is not much of it.',
-    objective: { kind: 'clear' },
+    // The node the player takes when the hull bar is the problem — and the one
+    // that punishes greed, because the pay is in the clock, not in the kills.
+    id: 'salvage_run', name: 'Salvage Run', type: 'survival', weight: 10,
+    minThreat: 1, maxThreat: 8,
+    blurb: 'Fifty seconds clamped to a cargo spine. A thin guard, and a lot of crates.',
+    intro:
+      'Sealed containers, still pressurised, and an automated guard too old to be '
+      + 'much of one. The winch is slow. That is the whole difficulty.',
+    objective: { kind: 'survive', seconds: 50 },
     obstacles: { count: 20, speed: 60, size: 24, toughness: 1, contact: 12, spreadX: 3 },
     waves: [
       { at: 0, spawn: [{ id: 'turret_pod', count: 2, formation: 'line', delay: 0.4 }] },
       { at: 9, spawn: [{ id: 'picket', count: 3, formation: 'ambush', delay: 0.35 }] },
-      { after: 'cleared', spawn: [{ budget: 0.45, pool: ['picket', 'turret_pod', 'bomblet'], formation: 'random', delay: 0.3 }] },
+      { at: 22, spawn: [{ budget: 0.45, pool: ['picket', 'turret_pod', 'bomblet'], formation: 'random', delay: 0.3 }] },
+      { at: 34, spawn: [{ budget: 0.45, pool: ['wasp', 'bomblet'], formation: 'echelon', delay: 0.35 }] },
+      { at: 44, spawn: [{ budget: 0.35, pool: ['interceptor', 'picket'], formation: 'cluster', delay: 0.2 }] },
     ],
     rewards: { xpMult: 0.55, creditsMult: 2.3, crates: 3 },
   },
 
   {
     // Idea: a dead carrier whose launch cycle never stopped. The wreck itself
-    // keeps producing the fight, so you kill the tenders or you kill forever.
-    id: 'the_carrier_grave', name: 'The Carrier Grave', type: 'derelict', weight: 10,
+    // produces the fight, so the tenders are the clock: kill them and the hold
+    // is quiet, ignore them and the last twenty seconds are a wall.
+    id: 'the_carrier_grave', name: 'The Carrier Grave', type: 'survival', weight: 10,
     minThreat: 4, maxThreat: 10,
-    blurb: 'A gutted carrier still cycling its launch bays. Kill the tenders.',
-    intro: 'The hull is open to space along a hundred metres. The bays are still running.',
-    objective: { kind: 'clear' },
+    blurb: 'Seventy seconds beside a carrier still cycling its bays. Kill the tenders.',
+    intro:
+      'The hull is open to space along a hundred metres and the launch bays are '
+      + 'still running on stored charge. Nothing here is commanding them. Nothing '
+      + 'here needs to.',
+    objective: { kind: 'survive', seconds: 70 },
     waves: [
       { at: 0, spawn: [{ id: 'picket', count: 3, formation: 'line', delay: 0.4 }] },
       { at: 8, spawn: [{ id: 'drone_carrier', count: 1, formation: 'ambush' }, { id: 'wasp', count: 3, formation: 'ambush', delay: 0.3 }] },
       { at: 26, spawn: [{ id: 'drone_carrier', count: 1, formation: 'column' }, { budget: 0.4, pool: ['interceptor', 'picket'], formation: 'arc', delay: 0.3 }] },
-      { after: 'cleared', spawn: [{ budget: 0.55, pool: ['gunship', 'interceptor'], formation: 'v', delay: 0.3 }] },
+      { at: 44, spawn: [{ budget: 0.5, pool: ['gunship', 'interceptor'], formation: 'v', delay: 0.3 }] },
+      { at: 58, spawn: [{ budget: 0.45, pool: ['wasp', 'zealot'], formation: 'pincer', delay: 0.25 }] },
     ],
     rewards: { xpMult: 1.1, creditsMult: 1.5, crates: 2 },
   },
 
   {
     // Idea: it was sealed from the outside, and the seal is the reason the
-    // crates are still here. Splitters and mines, in a hull full of corners.
-    id: 'quarantine_ward', name: 'Quarantine Ward', type: 'derelict', weight: 9,
+    // crates are still here. Splitters mean the field gets MORE crowded the
+    // harder you work, which is the wrong instinct for a hold.
+    id: 'quarantine_ward', name: 'Quarantine Ward', type: 'survival', weight: 9,
     minThreat: 7, maxThreat: 13,
-    blurb: 'A hospital ship welded shut from the outside. The seals are intact.',
-    intro: 'Somebody cut the airlocks closed rather than open. They had a reason.',
-    objective: { kind: 'clear' },
+    blurb: 'Seventy seconds inside a hospital ship welded shut from the outside.',
+    intro:
+      'Somebody cut the airlocks closed rather than open, and they had a reason. '
+      + 'Shooting the reason apart makes two of it.',
+    objective: { kind: 'survive', seconds: 70 },
     waves: [
       { at: 0, spawn: [{ id: 'drifting_mine', count: 4, formation: 'random', delay: 0.4 }] },
       { at: 9, spawn: [{ id: 'splitter', count: 4, formation: 'ambush', delay: 0.3 }] },
       { at: 24, spawn: [{ budget: 0.55, pool: ['splitter', 'bomblet', 'drifting_mine'], formation: 'random', delay: 0.3 }] },
-      { whenRemaining: 2, spawn: [{ budget: 0.6, pool: ['phantom', 'splitter'], formation: 'pincer', delay: 0.35 }] },
-      { after: 'cleared', spawn: [{ budget: 0.5, pool: ['lancer', 'splitter'], formation: 'arc', delay: 0.3 }] },
+      { at: 40, spawn: [{ budget: 0.55, pool: ['phantom', 'splitter'], formation: 'pincer', delay: 0.35 }] },
+      { at: 56, spawn: [{ budget: 0.5, pool: ['lancer', 'splitter'], formation: 'arc', delay: 0.3 }] },
     ],
     rewards: { xpMult: 1.2, creditsMult: 1.6, crates: 2 },
   },
@@ -576,38 +600,134 @@ export const HAZARD_ENCOUNTERS = [
   {
     // Idea: the reactor is still hot, which means the sentries still have power
     // and the salvage is worth taking. Guns that do not move, in a room you
-    // must cross anyway.
-    id: 'sealed_reactor_deck', name: 'Sealed Reactor Deck', type: 'derelict', weight: 9,
+    // cannot leave.
+    id: 'sealed_reactor_deck', name: 'Sealed Reactor Deck', type: 'survival', weight: 9,
     minThreat: 10, maxThreat: 16,
-    blurb: 'The reactor never scrammed. Neither did the deck sentries.',
-    intro: 'Everything here still has power. That is the good news and it is also the bad news.',
-    objective: { kind: 'clear' },
+    blurb: 'Seventy-five seconds tapping a reactor that never scrammed.',
+    intro:
+      'Everything on this deck still has power. That is why the tap is worth '
+      + 'setting, and it is why the deck sentries are going to object to it.',
+    objective: { kind: 'survive', seconds: 75 },
     waves: [
       { at: 0, spawn: [{ id: 'turret_pod', count: 3, formation: 'echelon', delay: 0.4 }] },
       { at: 10, spawn: [{ id: 'sentinel', count: 1, formation: 'ambush' }, { id: 'aegis_pod', count: 2, formation: 'ambush', delay: 0.4 }] },
       { at: 28, spawn: [{ budget: 0.55, pool: ['sentinel', 'artillery'], formation: 'line', delay: 0.5 }] },
-      { whenRemaining: 2, spawn: [{ budget: 0.6, pool: ['bulwark', 'lancer', 'turret_pod'], formation: 'arc', delay: 0.35 }] },
-      { after: 'cleared', spawn: [{ budget: 0.5, pool: ['missile_boat', 'sentinel'], formation: 'column', gap: 140, delay: 0.5 }] },
+      { at: 46, spawn: [{ budget: 0.6, pool: ['bulwark', 'lancer', 'turret_pod'], formation: 'arc', delay: 0.35 }] },
+      { at: 62, spawn: [{ budget: 0.5, pool: ['missile_boat', 'sentinel'], formation: 'column', gap: 140, delay: 0.5 }] },
     ],
     rewards: { xpMult: 1.25, creditsMult: 1.9, crates: 3 },
   },
 
   {
-    // Idea: a derelict that looks abandoned. It is not abandoned. The opening
-    // is one dead-quiet mine field, and then the whole hull wakes up at once.
-    id: 'ossuary', name: 'The Ossuary', type: 'derelict', weight: 7,
+    // Idea: forty wrecks nobody has stripped, which is a question rather than
+    // an opportunity. The answer arrives at seventy seconds and is a Warden.
+    id: 'ossuary', name: 'The Ossuary', type: 'survival', weight: 7,
     minThreat: 14, maxThreat: 20,
-    blurb: 'A shipbreaker yard of hulls. Something in it is still crewed.',
-    intro: 'Forty wrecks nose to tail, and not one of them has been stripped. Ask why.',
-    objective: { kind: 'clear' },
+    blurb: 'Eighty-five seconds in a shipbreaker yard. Something in it is still crewed.',
+    intro:
+      'Forty hulls nose to tail and not one of them stripped. Ask why before you '
+      + 'set the clamps, because you will have worked it out by the end anyway.',
+    objective: { kind: 'survive', seconds: 85 },
     obstacles: { count: 30, speed: 66, size: 40, toughness: 3, contact: 24, spreadX: 4 },
     waves: [
       { at: 0, spawn: [{ id: 'drifting_mine', count: 5, formation: 'random', delay: 0.5 }] },
       { at: 12, spawn: [{ id: 'phantom', count: 3, formation: 'ambush', delay: 0.35 }, { id: 'aegis_pod', count: 1, formation: 'ambush' }] },
       { at: 32, spawn: [{ budget: 0.6, pool: ['hunter', 'raider', 'phantom'], formation: 'pincer', delay: 0.4 }] },
-      { whenRemaining: 3, spawn: [{ budget: 0.65, pool: ['cruiser', 'missile_boat'], formation: 'line', delay: 0.6 }] },
-      { after: 'cleared', spawn: [{ id: 'warden', count: 1, formation: 'column' }] },
+      { at: 52, spawn: [{ budget: 0.65, pool: ['cruiser', 'missile_boat'], formation: 'line', delay: 0.6 }] },
+      { at: 70, spawn: [{ id: 'warden', count: 1, formation: 'column' }] },
     ],
     rewards: { xpMult: 1.5, creditsMult: 2.2, crates: 3 },
+  },
+
+  // =========================================================================
+  // HOLD-OUTS, third set — written for the node mix that came after the
+  // Derelict type was retired. Each one has to ask a different question from
+  // "can you outlast this", or a run's worth of them is one node repeated.
+  // =========================================================================
+
+  {
+    // Idea: the shallowest hold there is. Forty seconds, one clean rhythm, and
+    // the ships arrive from alternating edges so the answer is a figure of
+    // eight rather than a corner to sit in.
+    id: 'the_last_lamp', name: 'The Last Lamp', type: 'survival', weight: 11,
+    minThreat: 1, maxThreat: 6,
+    blurb: 'Forty seconds keeping a navigation lamp lit. They come from both sides.',
+    intro:
+      'It is the only lit thing for two jumps in any direction, which is why it '
+      + 'matters and why they know where it is. Forty seconds to bring the cell '
+      + 'back up.',
+    objective: { kind: 'survive', seconds: 40 },
+    waves: [
+      { at: 0, spawn: [{ id: 'picket', count: 3, formation: 'line', delay: 0.3 }] },
+      { at: 9, spawn: [{ budget: 0.4, pool: ['wasp', 'picket'], formation: 'pincer', delay: 0.25 }] },
+      { at: 18, spawn: [{ budget: 0.4, pool: ['picket', 'seeker'], formation: 'rear', move: 'advance', delay: 0.3 }] },
+      { at: 27, spawn: [{ budget: 0.45, pool: ['wasp', 'interceptor'], formation: 'pincer', delay: 0.25 }] },
+      { at: 34, spawn: [{ budget: 0.35, pool: ['zealot'], formation: 'cluster', delay: 0.2 }] },
+    ],
+    rewards: { xpMult: 1.1, creditsMult: 1.05, crates: 1 },
+  },
+
+  {
+    // Idea: the field fills with mines rather than with ships. The question is
+    // not what to shoot, it is where there will still be room to stand in
+    // thirty seconds' time.
+    id: 'the_silting', name: 'The Silting', type: 'survival', weight: 10,
+    minThreat: 2, maxThreat: 9,
+    blurb: 'Sixty seconds while the lane fills up behind you. Space runs out before time does.',
+    intro:
+      'They are not really trying to hit you. They are seeding the lane, patiently, '
+      + 'and every one they lay is one fewer place you can be when the last of them '
+      + 'arrives.',
+    objective: { kind: 'survive', seconds: 60 },
+    waves: [
+      { at: 0, spawn: [{ id: 'bomblet', count: 2, formation: 'echelon', delay: 0.5 }] },
+      { at: 12, spawn: [{ id: 'drifting_mine', count: 4, formation: 'random', delay: 0.4 }] },
+      { at: 22, spawn: [{ id: 'bomblet', count: 3, formation: 'arc', delay: 0.45 }] },
+      { at: 34, spawn: [{ budget: 0.45, pool: ['bomblet', 'drifting_mine'], formation: 'random', delay: 0.35 }] },
+      { at: 46, spawn: [{ budget: 0.5, pool: ['gunship', 'interceptor'], formation: 'v', delay: 0.3 }] },
+    ],
+    rewards: { xpMult: 1.15, creditsMult: 1.2, crates: 1 },
+  },
+
+  {
+    // Idea: a hold with a wall in it. Entrenched guns hold the middle third
+    // from the first second, so the sixty seconds are spent in the top and
+    // bottom lanes — and the reinforcements come down those.
+    id: 'the_bulkhead_watch', name: 'The Bulkhead Watch', type: 'survival', weight: 10,
+    minThreat: 6, maxThreat: 12,
+    blurb: 'Sixty-five seconds with the middle of the lane already spoken for.',
+    intro:
+      'The guns went in before you did and they are pointed at the only comfortable '
+      + 'place to stand. Everything that arrives after them knows that too.',
+    objective: { kind: 'survive', seconds: 65 },
+    waves: [
+      { at: 0, spawn: [{ id: 'turret_pod', count: 5, formation: 'crossfire', move: 'entrench', delay: 0.2 }] },
+      { at: 14, spawn: [{ budget: 0.45, pool: ['lancer', 'gunship'], formation: 'gauntlet', move: 'entrench', delay: 0.3 }] },
+      { at: 28, spawn: [{ budget: 0.5, pool: ['interceptor', 'wasp'], formation: 'pincer', delay: 0.25 }] },
+      { at: 42, spawn: [{ id: 'artillery', count: 2, formation: 'crossfire', move: 'entrench', delay: 0.4 }] },
+      { at: 54, spawn: [{ budget: 0.5, pool: ['phantom', 'raider'], formation: 'arc', delay: 0.3 }] },
+    ],
+    rewards: { xpMult: 1.3, creditsMult: 1.15, crates: 1 },
+  },
+
+  {
+    // Idea: the hold where standing still is fatal. Everything here lays
+    // ground rather than shooting at you, so the eighty seconds are one long
+    // slow walk around a field that keeps closing.
+    id: 'the_scorch_watch', name: 'The Scorch Watch', type: 'survival', weight: 8,
+    minThreat: 12, maxThreat: 20,
+    blurb: 'Eighty seconds on burning ground. Nothing here is aiming at you.',
+    intro:
+      'They are not shooting at you, which is worse. They are shooting at the floor, '
+      + 'and there is a finite amount of floor.',
+    objective: { kind: 'survive', seconds: 80 },
+    waves: [
+      { at: 0, spawn: [{ id: 'pyre', count: 2, formation: 'echelon', delay: 0.5 }] },
+      { at: 14, spawn: [{ id: 'censer', count: 2, formation: 'arc', delay: 0.4 }, { budget: 0.35, pool: ['interceptor'], formation: 'line', delay: 0.3 }] },
+      { at: 30, spawn: [{ budget: 0.55, pool: ['pyre', 'artillery'], formation: 'crossfire', move: 'entrench', delay: 0.4 }] },
+      { at: 48, spawn: [{ id: 'hierophant', count: 1, formation: 'column' }] },
+      { at: 64, spawn: [{ budget: 0.5, pool: ['hunter', 'reaper'], formation: 'pincer', delay: 0.35 }] },
+    ],
+    rewards: { xpMult: 1.45, creditsMult: 1.3, crates: 2 },
   },
 ];

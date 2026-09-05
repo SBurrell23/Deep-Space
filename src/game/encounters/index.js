@@ -36,7 +36,6 @@ export const ENCOUNTER_TYPES = {
   asteroid: { action: true, icon: 'node_asteroid', label: 'Debris Field' },
   tunnel: { action: true, icon: 'node_tunnel', label: 'Passage' },
   survival: { action: true, icon: 'node_survival', label: 'Hold Out' },
-  derelict: { action: true, icon: 'node_derelict', label: 'Derelict' },
   boss: { action: true, icon: 'node_boss', label: 'Capital Ship' },
   masterfleet: { action: true, icon: 'node_masterfleet', label: 'The Master Fleet' },
   shop: { action: false, icon: 'node_shop', label: 'Trading Post' },

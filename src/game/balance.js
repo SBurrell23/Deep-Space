@@ -248,6 +248,24 @@ export const BALANCE = {
     budgetBase: 17,
     budgetPerThreat: 0.55,
     countScale: 0.42,
+
+    /**
+     * Budget multiplier for objectives you outlast rather than clear.
+     *
+     * A hold-out spawns for its whole duration, so the same budget that makes
+     * one wave of a Hostiles fight makes six of a ninety-second hold — hence
+     * the discount. But it was set when holding out was six per cent of the
+     * map, and at 0.72 the node cost 0-10% of the hull bar and killed the
+     * reference pilot exactly never across a hundred and twenty of them. Now
+     * that hold-outs are an eighth of the map, an eighth of the map was free.
+     *
+     * Volume is the fantasy here in a way it is not anywhere else: the point
+     * of a hold is that they keep arriving. At 1.5 a hold costs 12% of the
+     * bar and can occasionally kill, while the screen stays readable — 0.9
+     * enemy bullets alive on average, a median peak of seven. Crowded, not a
+     * wall; that distinction is what the whole of v2.8 was about.
+     */
+    sustainedBudget: 1.5,
   },
 
   // -------------------------------------------------------------------------
@@ -305,6 +323,20 @@ export const BALANCE = {
     * hit as hard as one of ten.
     */
     damageBase: 3.8,
+
+    /**
+     * How much of a duelist's hull pool is actually there in the shallows.
+     *
+     * The pool is sized for a player who has levelled and rolled some gear.
+     * In the first couple of rings they have neither, so the fight that
+     * measures at forty seconds mid-run is a long grind against a starting
+     * loadout with one weapon on it — the right length on paper and too long
+     * in the hand. Ramped back to full by `earlyHullUntil`, exactly as enemy
+     * damage is ramped up by `earlyGrace`. The opening rings are where the
+     * player learns what a duelist IS, and that wants a short fight.
+     */
+    earlyHull: 0.6,
+    earlyHullUntil: 6,
 
     /**
      * Matched to the player's measured effective hull, which grows 1.051 a
