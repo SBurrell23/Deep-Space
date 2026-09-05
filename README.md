@@ -130,6 +130,37 @@ everything it earned did not have an economy, it had a scoreboard.
 Every one of those numbers lives in `src/game/balance.js`, with the reasoning
 next to it, and can be re-measured or swept from `tests/`.
 
+**v3.2: you never fight the same ship twice in a run.**
+
+A duelist is something you *learn* — its tell, its rhythm, the gap in its wall
+— so meeting one twice hands you a node you have already solved. There are a
+hundred of them and at most ninety-one Hostiles nodes on the largest map, so
+this is a promise the generator can always keep. It was not keeping it: the
+old rule only avoided the last six encounters placed, and a map repeated
+**5.9 duelists on average, up to 20 on a bad one**.
+
+Two changes, because the obvious one was not enough:
+
+* **Never twice per map**, not merely not-recently. On its own this took
+  duplicates to 0.08 a map — still not zero.
+* **Deepest nodes choose first.** The remainder were all at threats 17-20.
+  Filling in node order let the shallow rings spend the duelists that are
+  legal at every depth, and by the rim there was nothing unseen left: the last
+  two threat levels draw six or seven nodes each from a pool of forty that had
+  already been picked over. Letting the most constrained nodes pick first
+  costs the shallow ones nothing — they have thirty low-band opponents no deep
+  node can touch.
+
+Where a band still runs dry, a node reaches **outside its threat band** rather
+than repeat: a duelist scales to whatever node it is placed on, so an off-band
+opponent is a pacing compromise where a repeated one is a content failure.
+Measured over 2,000 maps: **zero duplicates**, and 0.12 off-band placements per
+map — about one node in every eight runs.
+
+The other node types still repeat, and cannot not: sixteen hold-outs cannot
+fill twenty-one hold-out nodes. That is a content question, not a generator
+one.
+
 **v3.1: the map is duels and hold-outs now.**
 
 Three changes to what a run is made of, and one bug that made a whole ability

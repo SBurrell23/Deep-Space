@@ -8,6 +8,7 @@ import { MASTER_FLEET_STAGES } from '../src/game/run.js';
 import { Corridor } from '../src/game/terrain.js';
 import { SLOT_IDS } from '../src/game/items.js';
 import { ENEMIES } from '../src/game/enemies.js';
+import { generateUniverse } from '../src/game/universe.js';
 import { ATTRIBUTE_IDS } from '../src/game/attributes.js';
 
 const EFFECT_KEYS = new Set([
@@ -222,5 +223,50 @@ describe('boss content', () => {
       assert.ok((r.xpMult ?? 1) > 1 || (r.creditsMult ?? 1) > 1 || (r.crates ?? 0) > 0,
         `${b.id} pays no premium for being a boss`);
     }
+  });
+});
+
+describe('a map never repeats an opponent', () => {
+  const maps = Array.from({ length: 60 }, (_, i) => generateUniverse(new RNG(`unique-${i}`)));
+
+  const hostilesOn = map => map.nodes
+    .filter(n => n.type === 'hostiles' && n.encounterId)
+    .map(n => n.encounterId);
+
+  it('places every Hostiles encounter at most once per run', () => {
+    // A duelist is something the player LEARNS — its tell, its rhythm, the gap
+    // in its wall — so meeting one twice hands them a node they have already
+    // solved. There are a hundred and at most ninety-one Hostiles nodes, so
+    // this is a promise the generator can always keep.
+    for (const [i, map] of maps.entries()) {
+      const ids = hostilesOn(map);
+      const dups = ids.length - new Set(ids).size;
+      assert.equal(dups, 0, `map ${i} repeats ${dups} of its ${ids.length} Hostiles encounters`);
+    }
+  });
+
+  it('has more Hostiles nodes than any one threat band could supply', () => {
+    // Guards the assumption the test above rests on: if a map only ever had a
+    // handful of these, uniqueness would be trivially true and would stop
+    // meaning anything.
+    const counts = maps.map(m => hostilesOn(m).length);
+    assert.greater(Math.max(...counts), 45, 'no map is large enough to exercise this');
+    assert.ok(Math.max(...counts) <= 100, 'a map has more Hostiles nodes than there are duelists');
+  });
+
+  it('reaches outside a threat band rather than repeating', () => {
+    // The escape valve that makes the guarantee absolute. It should be rare —
+    // it is a pacing compromise — but it must be the thing that happens when a
+    // band runs dry, and a duelist scales to whatever node it is placed on.
+    let offBand = 0, total = 0;
+    for (const map of maps) {
+      for (const n of map.nodes) {
+        if (n.type !== 'hostiles' || !n.encounterId) continue;
+        total++;
+        const e = ENCOUNTERS_BY_ID[n.encounterId];
+        if (n.threat < (e.minThreat ?? 1) || n.threat > (e.maxThreat ?? 99)) offBand++;
+      }
+    }
+    assert.ok(offBand / total < 0.02, `${(offBand / total * 100).toFixed(1)}% of duels are off-band`);
   });
 });

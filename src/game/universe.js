@@ -124,14 +124,33 @@ export function generateUniverse(rng, opts = {}) {
   }
 
   // --- content ---
-  const recent = [];
   for (const n of nodes) {
     n.threat = threatForRing(n.ring, rings, rng);
     n.type = n.id === 0 ? 'empty' : pickType(rng, n.ring);
-    const enc = pickEncounter(rng, n.threat, n.type, recent);
+  }
+
+  // Content is assigned DEEPEST FIRST, because the deep pools are the small
+  // ones and whoever picks last gets the repeats.
+  //
+  // Filling in node order let the shallow rings spend the duelists that are
+  // legal at every depth, and by the rim there was nothing unseen left: the
+  // last two threat levels draw six or seven Hostiles nodes each from a pool
+  // of forty that had already been picked over, and duplicated six times a
+  // map. Letting the most constrained nodes choose first costs the shallow
+  // ones nothing — they have thirty low-band opponents no deep node can
+  // touch — and takes duplicate Hostiles encounters to zero.
+  //
+  // `used` is every id already placed. Deep pools never repeat within a map;
+  // shallow ones fall back to the sliding window in `recent`.
+  const order = [...nodes].sort((a, b) => b.threat - a.threat);
+  const recent = [];
+  const used = new Set();
+  for (const n of order) {
+    const enc = pickEncounter(rng, n.threat, n.type, recent, used);
     n.encounterId = enc?.id || null;
     n.blurb = enc?.blurb || '';
     n.encounterName = enc?.name || ENCOUNTER_TYPES[n.type]?.label || '';
+    if (n.encounterId) used.add(n.encounterId);
     recent.push(n.encounterId);
     if (recent.length > 6) recent.shift();
   }

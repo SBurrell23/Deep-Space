@@ -31,7 +31,16 @@ export const ENCOUNTER_TYPES = {
   // them can afford an attack worth reading, so every fight was the same
   // fight, which was volume. The small ships still exist; they live in the
   // debris fields and the passages now, which is where a swarm belongs.
-  hostiles: { action: true, icon: 'node_duel', label: 'Hostiles' },
+  // `uniquePerMap`: never the same opponent twice in one run, guaranteed
+  // rather than merely likely. A duelist is something you LEARN — its tell,
+  // its rhythm, the gap in its wall — and meeting one twice hands the player
+  // a node they have already solved. There are a hundred of them and at most
+  // ninety-one Hostiles nodes on the largest map, so the promise is always
+  // keepable; where a threat band runs dry, a node reaches outside its band
+  // rather than repeat, because a duelist scales to whatever node it is
+  // placed on and an off-band opponent is a pacing compromise where a
+  // repeated one is a content failure.
+  hostiles: { action: true, icon: 'node_duel', label: 'Hostiles', uniquePerMap: true },
   elite: { action: true, icon: 'node_boss', label: 'Elite' },
   asteroid: { action: true, icon: 'node_asteroid', label: 'Debris Field' },
   tunnel: { action: true, icon: 'node_tunnel', label: 'Passage' },
@@ -71,17 +80,35 @@ export function candidatesFor(threat, type = null) {
 }
 
 /**
- * Pick an encounter for a node. `avoid` holds recently-used ids so the same
- * fight doesn't appear three beacons running — repetition is the fastest way
- * for a procedural game to feel small.
+ * Pick an encounter for a node.
+ *
+ * Two levels of anti-repetition, because repetition is the fastest way for a
+ * procedural game to feel small:
+ *
+ *   `used`   every id already placed on this map. Where the pool is deep
+ *            enough, an encounter appears at most ONCE per run. There are a
+ *            hundred duelists and about seventy Hostiles nodes, so meeting
+ *            the same named ship twice is always avoidable — and meeting it
+ *            twice is exactly what would make a hundred opponents feel like a
+ *            dozen, since the whole point of a duelist is that you learn it.
+ *   `avoid`  the last few ids, for the shallower pools where uniqueness is
+ *            not achievable. A tunnel repeating is fine; three beacons
+ *            running is not.
+ *
+ * Falls back rather than failing: a band that has run out of unseen content
+ * still returns something, because a node with no encounter is a broken run.
  */
-export function pickEncounter(rng, threat, type, avoid = []) {
+export function pickEncounter(rng, threat, type, avoid = [], used = null) {
   let pool = candidatesFor(threat, type);
   if (pool.length === 0) pool = candidatesFor(threat);
   if (pool.length === 0) pool = ALL_ENCOUNTERS.filter(e => !e.excludeFromPool);
 
+  let unseen = used ? pool.filter(e => !used.has(e.id)) : [];
+  if (used && unseen.length === 0 && ENCOUNTER_TYPES[type]?.uniquePerMap) {
+    unseen = encountersOfType(type).filter(e => !e.excludeFromPool && !used.has(e.id));
+  }
   const fresh = pool.filter(e => !avoid.includes(e.id));
-  const from = fresh.length > 0 ? fresh : pool;
+  const from = unseen.length > 0 ? unseen : (fresh.length > 0 ? fresh : pool);
   return rng.weighted(from.map(e => ({ e, weight: e.weight ?? 10 })), 'weight').e;
 }
 
