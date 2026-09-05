@@ -15,7 +15,7 @@ import { Spawner } from './spawner.js';
 import { Corridor, seedObstacles } from './terrain.js';
 import { resolveWeapon, shotInterval } from './weapons.js';
 import { ENEMIES } from './enemies.js';
-import { DEFENCE_TUNING } from './balance.js';
+import { DEFENCE_TUNING, ENEMY_TUNING } from './balance.js';
 
 export const WORLD_W = 960;
 export const WORLD_H = 540;
@@ -99,6 +99,7 @@ export function createWorld({ encounter, threat, ship, rng, seed = 0, width = WO
       // Where the hull came back from. Damage taken means nothing on its own
       // if it is all healed before the fight ends.
       healed: 0, healedPickup: 0, healedLifesteal: 0, healedAbility: 0,
+      bySource: {},
     },
   };
 
@@ -731,8 +732,8 @@ function makeEnemy(world, spec) {
     armour: def.armour || 0,
 
     speed: def.speed,
-    move: MOVEMENTS[def.move] ? def.move : 'straight',
-    fire: FIRE_PATTERNS[def.fire] ? def.fire : 'none',
+    move: MOVEMENTS[spec.move] ? spec.move : (MOVEMENTS[def.move] ? def.move : 'straight'),
+    fire: FIRE_PATTERNS[spec.fire] ? spec.fire : (FIRE_PATTERNS[def.fire] ? def.fire : 'none'),
     fireRate: def.fireRate || 0,
     fireTimer: world.rng.float(0.3, 1.6) / Math.max(0.1, def.fireRate || 1),
     bulletDamage: def.bulletDamage * mul,
@@ -748,6 +749,8 @@ function makeEnemy(world, spec) {
     splits: def.splits || null,
     explodes: def.explodes || null,
     cloak: def.cloak ? { ...def.cloak, t: world.rng.float(0, def.cloak.period), hidden: false } : null,
+    windup: 0,
+    windupFor: 0,
     isBoss: !!spec.def.isBoss,
     tag: spec.tag,
 
@@ -819,18 +822,31 @@ function updateEnemies(world, dt) {
       }
     }
 
-    // Fire.
+    // Fire — announced first. `windup` counts down in view of the player, who
+    // gets that long to be somewhere else. Without it a fast bullet is not a
+    // dodging game, it is an unfair one.
     if (e.fireRate > 0 && !(e.cloak && e.cloak.hidden)) {
-      e.fireTimer -= dt;
-      if (e.fireTimer <= 0 && e.x < world.w + 30 && e.x > -40) {
-        e.fireTimer = 1 / e.fireRate;
-        const specs = (FIRE_PATTERNS[e.fire] || FIRE_PATTERNS.none)(e, world);
-        for (const spec of specs) {
-          if (spec.zone) spawnZone(world, e, spec);
-          else if (spec.beam) spawnBeam(world, e, spec);
-          else spawnEnemyBullet(world, e, spec);
+      const inRange = e.x < world.w + 30 && e.x > -40;
+      if (e.windup > 0) {
+        e.windup -= dt;
+        if (e.windup <= 0) {
+          e.windup = 0;
+          const specs = (FIRE_PATTERNS[e.fire] || FIRE_PATTERNS.none)(e, world);
+          for (const spec of specs) {
+            if (spec.zone) spawnZone(world, e, spec);
+            else if (spec.beam) spawnBeam(world, e, spec);
+            else spawnEnemyBullet(world, e, spec);
+          }
+          if (specs.length) emit(world, { type: 'enemyFire', x: e.x, y: e.y, count: specs.length });
         }
-        if (specs.length) emit(world, { type: 'enemyFire', x: e.x, y: e.y, count: specs.length });
+      } else {
+        e.fireTimer -= dt;
+        if (e.fireTimer <= 0 && inRange) {
+          e.fireTimer = 1 / e.fireRate;
+          e.windup = ENEMY_TUNING.windup;
+          e.windupFor = ENEMY_TUNING.windup;
+          emit(world, { type: 'enemyAim', x: e.x, y: e.y });
+        }
       }
     }
 
@@ -881,8 +897,14 @@ function updateEnemies(world, dt) {
       // overtaken is the point of a chase.
       // Bounded, or an enemy the player cannot reach loops forever and the
       // encounter never ends: unbounded wrapping stalled 5-8% of deep fights.
-      if (killObjective(world) && e.x < 0 && (e.passes || 0) < MAX_PASSES) {
-        e.x = world.w + 60 + world.rng.float(0, 90);
+      if (killObjective(world) && (e.passes || 0) < MAX_PASSES) {
+        // Re-enter from whichever edge it did NOT leave by. This has to be
+        // symmetric: encounters that put ships behind you send them across to
+        // the right, and wrapping only the left edge meant two thirds of such
+        // a fight simply flew away and was never fought.
+        const leftward = e.x < 0;
+        e.x = leftward ? world.w + 60 + world.rng.float(0, 90)
+          : -60 - world.rng.float(0, 90);
         e.y = clamp(world.rng.float(world.h * 0.12, world.h * 0.88), 20, world.h - 20);
         e.holdX = null;
         e.passes = (e.passes || 0) + 1;
@@ -953,7 +975,8 @@ function spawnBeam(world, e, spec) {
 }
 
 function spawnEnemyBullet(world, e, spec) {
-  const speed = spec.speed ?? 280;
+  // One place, so patterns that compute their own speed scale with the rest.
+  const speed = (spec.speed ?? 280) * ENEMY_TUNING.bulletSpeedScale;
   world.eBullets.push({
     x: spec.x ?? e.x, y: spec.y ?? e.y,
     vx: Math.cos(spec.angle) * speed,
@@ -1584,6 +1607,10 @@ export function damagePlayer(world, amount, opts = {}) {
     }
   }
   world.stats.damageTaken += amount;
+  // Which kind of mistake cost the player this hull? Bullets are a dodging
+  // problem, collisions are a spacing one, and they want opposite fixes.
+  const src = opts.source || 'bullet';
+  world.stats.bySource[src] = (world.stats.bySource[src] || 0) + amount;
   return amount;
 }
 

@@ -27,6 +27,19 @@ export const MOVEMENTS = {
     e.vy = 0;
   },
 
+  /** Straight, the other way: for anything that jumped in behind you. */
+  advance(e, world, dt) {
+    e.vx = e.speed;
+    e.vy = 0;
+  },
+
+  /** Holds a lane and shuffles along it. A wall, not a charge. */
+  entrench(e, world, dt) {
+    if (!Number.isFinite(e.holdX)) e.holdX = Number.isFinite(e.x) ? e.x : world.w * 0.8;
+    e.vx = (e.holdX - e.x) * 1.6;
+    e.vy = Math.cos((world.time || 0) * 0.7 + (Number(e.id) || 0)) * e.speed * 0.35;
+  },
+
   /** Sine weave — the classic shmup approach. */
   sine(e, world, dt) {
     e.mem.t = (e.mem.t || 0) + dt;

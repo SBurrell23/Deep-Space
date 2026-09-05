@@ -129,6 +129,38 @@ everything it earned did not have an economy, it had a scoreboard.
 Every one of those numbers lives in `src/game/balance.js`, with the reasoning
 next to it, and can be re-measured or swept from `tests/`.
 
+**v2.8 found what was actually wrong, which was not any of the numbers.**
+
+Enemy shots travelled at 260-430 px/s against a player who moves at 239-325.
+At parity you cannot dodge a bullet, only slowly out-walk it — and a shot that
+crosses a 1200px field at 260 px/s is on screen for four and a half *seconds*.
+Measured: 41-65 enemy bullets alive at once. That was the wall of noise, and it
+was caused by bullet speed, not enemy count, which is why cutting the ships to a
+third in v2.7 barely touched it. It also forced everything else: shots you cannot
+avoid have to be harmless, so a hit cost 0.3-1.6% of hull and nothing was worth
+respecting. Every tuning pass before this was adjusting how much a raindrop
+hurts, inside a rainstorm you cannot step out of.
+
+| | before | after |
+|---|---|---|
+| enemy bullet speed | 0.8-1.8x player | **2.4-5.2x player** |
+| bullets alive at once | avg 9-15, peak 41-65 | **avg 1-3, peak 8-19** |
+| shots fired per fight | ~140 | **~50** |
+| telegraph before firing | beams only | **every shot, 0.34s** |
+| hull cost per fight | 2-14% | 8-14% |
+
+Fewer shots, three times faster, each one announced. The pilot dodges 90% of
+them either way — that was never broken — but a tenth of fifty is four or five
+hits rather than thirteen, which is few enough that a hit is allowed to take a
+real bite.
+
+`tests/shapes` — six encounters that pose a spatial problem rather than a
+roster: a wall to flank, two banks firing across the lane you want, a screen
+around something worth screening, and ships that jumped in behind you. Groups
+can now override how they fly, so the same archetype reads as a different fight
+depending on whether it charges, holds a line, or comes at you from the wrong
+side.
+
 **v2.7 rebuilt what a fight is.** Hostiles, Swarm and Pursuit were three node
 types that all came down to "ships are shooting at you", and one of them could
 be won by running out a clock. They are one type now — Hostiles — and it always

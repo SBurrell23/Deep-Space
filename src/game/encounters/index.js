@@ -20,6 +20,7 @@ import { HAZARD_ENCOUNTERS } from './hazard.js';
 import { BOSS_ENCOUNTERS } from './bosses.js';
 import { STORY_ENCOUNTERS } from './story.js';
 import { ADVANCED_ENCOUNTERS } from './advanced.js';
+import { SHAPE_ENCOUNTERS } from './shapes.js';
 
 /** Every encounter type, and whether it is played in the action sim. */
 export const ENCOUNTER_TYPES = {
@@ -47,6 +48,7 @@ export const ALL_ENCOUNTERS = [
   ...BOSS_ENCOUNTERS,
   ...STORY_ENCOUNTERS,
   ...ADVANCED_ENCOUNTERS,
+  ...SHAPE_ENCOUNTERS,
 ];
 
 export const ENCOUNTERS_BY_ID = Object.fromEntries(ALL_ENCOUNTERS.map(e => [e.id, e]));

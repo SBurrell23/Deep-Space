@@ -126,6 +126,23 @@ export function pilotInput(world, pilot, dt = 1 / 60) {
     if (e.dead) continue;
     const dx = p.x - e.x, dy = p.y - e.y;
     const d = Math.hypot(dx, dy);
+
+    // A ship winding up is about to put a shot where we are standing. Step off
+    // the line it is drawing rather than waiting for the bullet — this is the
+    // whole point of a telegraph, and a pilot that ignores it measures a
+    // readable game as an unfair one.
+    if (e.windup > 0 && d > 1) {
+      const readable = Math.min(1, pilot.lookahead / Math.max(0.05, e.windup));
+      if (readable > 0.25) {
+        let px = -dy / d, py = dx / d;          // perpendicular to its line of fire
+        if (px * p.vx + py * p.vy < 0) { px = -px; py = -py; }
+        const urgency = readable * (1 - Math.min(1, d / 620));
+        ax += px * urgency * 2.6;
+        ay += py * urgency * 2.6;
+        danger += urgency * 0.5;
+      }
+    }
+
     const keep = e.r + p.r + 46;
     if (d > keep || d < 1) continue;
     push(dx, dy, d, (1 - d / keep) * 1.8);

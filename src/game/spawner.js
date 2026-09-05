@@ -123,6 +123,56 @@ export const FORMATIONS = {
       y: rng.float(world.h * 0.12, world.h * 0.88),
     }));
   },
+
+  // --- shapes that pose a spatial problem ----------------------------------
+  //
+  // Every fight used to be "ships arrive from the right", which is one problem
+  // wearing thirty-eight names. These place the enemy so that WHERE you fly is
+  // the question, not just how fast you shoot.
+
+  /** A wall down the far side. You cannot go through it; go round it. */
+  gauntlet(n, world, o = {}) {
+    const x = o.x ?? world.w * 0.82;
+    const top = world.h * 0.10, bot = world.h * 0.90;
+    return Array.from({ length: n }, (_, i) => ({
+      x, y: n === 1 ? world.h / 2 : top + (bot - top) * (i / (n - 1)),
+    }));
+  },
+
+  /** Two banks, above and below, shooting across the lane between them. */
+  crossfire(n, world, o = {}) {
+    const spread = o.spread ?? 0.34;
+    return Array.from({ length: n }, (_, i) => {
+      const half = Math.floor(i / 2);
+      const runs = Math.max(1, Math.ceil(n / 2) - 1);
+      return {
+        x: world.w * (0.55 + spread * (runs ? half / runs : 0)),
+        y: i % 2 === 0 ? world.h * 0.14 : world.h * 0.86,
+        enterFrom: i % 2 === 0 ? 'top' : 'bottom',
+      };
+    });
+  },
+
+  /** A ring around one point: a shell you have to open before the core. */
+  shell(n, world, o = {}) {
+    const cx = o.cx ?? world.w * 0.72;
+    const cy = o.cy ?? world.h / 2;
+    const r = o.radius ?? 120;
+    return Array.from({ length: n }, (_, i) => {
+      const a = (i / Math.max(1, n)) * Math.PI * 2;
+      return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+    });
+  },
+
+  /** Behind you. Turn round. */
+  rear(n, world, o = {}) {
+    const top = world.h * 0.15, bot = world.h * 0.85;
+    return Array.from({ length: n }, (_, i) => ({
+      x: -40 - (i % 3) * 34,
+      y: n === 1 ? world.h / 2 : top + (bot - top) * (i / (n - 1)),
+      enterFrom: 'left',
+    }));
+  },
 };
 
 export const FORMATION_IDS = Object.keys(FORMATIONS);
@@ -233,6 +283,13 @@ export class Spawner {
           enterFrom: points[i]?.enterFrom || 'right',
           delay: (group.delay || 0) * i + (group.wait || 0),
           elite: !!group.elite,
+          // An encounter can override how a group flies. The same archetype
+          // read as a completely different problem depending on whether it
+          // charges you, holds a line, or comes in from behind, and without
+          // this every fight was shaped by the enemy roster rather than by
+          // whoever wrote the encounter.
+          move: group.move || null,
+          fire: group.fire || null,
           slotX: (points[i]?.x ?? 0) - world.w,
           slotY: (points[i]?.y ?? 0) - world.h / 2,
           tag: group.tag || null,

@@ -260,6 +260,8 @@ export function scaleEnemy(def, threat) {
     explodes: def.explodes
       ? { ...def.explodes, damage: def.explodes.damage * dmgMul * DAMAGE_SCALE }
       : null,
+    // Fewer, heavier shots rather than a continuous drizzle.
+    fireRate: (def.fireRate || 0) * ENEMY_TUNING.fireRateScale,
     xp: Math.round(def.xp * rewardMul),
     credits: Math.round(def.credits * rewardMul),
     threat: t,

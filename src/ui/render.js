@@ -321,6 +321,9 @@ export function consumeEvents(events, fx) {
     switch (ev.type) {
       case 'fire': if (ev.sound) sounds.push([ev.sound, 90]); break;
       case 'enemyFire': sounds.push(['laser_light', 160]); break;
+      // A soft click as a ship draws a bead on you — the audible half of the
+      // telegraph, so a shot lining up off-screen still registers.
+      case 'enemyAim': sounds.push(['weapon_ready', 320]); break;
       case 'hit': fx.hit(ev.x, ev.y, ev.crit); if (ev.crit) sounds.push(['system_damage', 120]); break;
       case 'explode':
         fx.boom(ev.x, ev.y, ev.size || 24, ev.big);
@@ -640,10 +643,27 @@ function drawEnemies(ctx, world, t) {
       ctx.restore();
     }
 
+    // The wind-up. A fast bullet is only fair if you saw it coming, so the
+    // ship flares and draws a ring that closes on it over the whole telegraph:
+    // by the time the ring touches the hull, the shot is away.
+    if (e.windup > 0 && e.windupFor > 0) {
+      const done = 1 - e.windup / e.windupFor;
+      ctx.save();
+      ctx.globalAlpha = (0.22 + 0.55 * done) * alpha;
+      ctx.strokeStyle = C.red;
+      ctx.lineWidth = 1.5 + done * 1.5;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.r + 26 - 22 * done, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     safeSprite(ctx, e.sprite, e.x, e.y, e.drawScale || 1, {
       center: true,
       alpha,
-      tint: e.hitFlash > 0.35 ? '#ffffff' : null,
+      tint: e.hitFlash > 0.35 ? '#ffffff'
+        : (e.windup > 0 && e.windupFor > 0 && e.windup < e.windupFor * 0.34) ? '#ff8f6b'
+          : null,
     });
 
     if (e.elite || e.isBoss) {

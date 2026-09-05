@@ -42,7 +42,50 @@ export const BALANCE = {
      * difficulty — there is nothing to dodge when everything is a pinprick and
      * there are too many to see. Fewer guns, each one worth avoiding.
      */
-    damageScale: 1.15,
+    damageScale: 3.6,
+
+    /**
+     * Projectile physics — the thing that was actually wrong.
+     *
+     * Enemy shots travelled at 260-430 px/s against a player who moves at
+     * 239-325. At parity you cannot dodge a bullet, only slowly out-walk it,
+     * and a shot that crosses a 1200px field at 260 px/s is on screen for four
+     * and a half SECONDS. Measured: 41-65 enemy bullets alive at once. That is
+     * the wall of noise, and it was caused by bullet speed, not enemy count —
+     * cutting the ships to a third barely touched it.
+     *
+     * Worse, it forced everything else: bullets you cannot avoid have to be
+     * harmless, so a hit cost 0.3-1.6% of hull and nothing was worth
+     * respecting. Every tuning pass that followed was adjusting how much a
+     * raindrop hurts inside a rainstorm you cannot step out of.
+     *
+     * Fast shots cross in about a second, so the screen stays readable and a
+     * shot becomes a discrete event you slip past. Because you can now avoid
+     * them, they are allowed to hurt.
+     */
+    bulletSpeedScale: 2.9,
+
+    /**
+     * Enemies fire far less often, and mean it when they do.
+     *
+     * A fight was putting about 140 shots at the player. The pilot dodges 90%
+     * of them — that part was never broken — but a tenth of a hundred and
+     * forty is still thirteen hits, so each one had to be a pinprick and none
+     * of it could matter. Around fifty shots a fight turns the same dodge rate
+     * into four or five hits, which is few enough that a hit is allowed to
+     * take a real bite, and few enough that dodging the next one is a decision
+     * rather than a reflex you hold down.
+     */
+    fireRateScale: 0.22,
+
+    /**
+     * Seconds of visible wind-up before an enemy fires.
+     *
+     * "Dodge everything" is only fair if you can see it coming. Beams already
+     * telegraphed; ordinary fire did not, so a faster bullet on its own would
+     * just be an unfair one. The enemy flares, then shoots.
+     */
+    windup: 0.34,
 
     /**
      * Per-class toughness on top of each archetype's base hull.
@@ -122,7 +165,7 @@ export const BALANCE = {
      * much and no more — the rest you carry out with you, which is what makes
      * hull a run-long resource and gives gold something to buy.
      */
-    healPerEncounter: 0.12,
+    healPerEncounter: 0.06,
 
     /**
      * Lifesteal, as a fraction of max hull healed per second, however much
