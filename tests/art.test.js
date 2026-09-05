@@ -11,6 +11,12 @@ import { ATTRIBUTES } from '../src/game/attributes.js';
 import { SLOTS } from '../src/game/items.js';
 import { ACHIEVEMENTS } from '../src/game/achievements.js';
 import { TERRAIN_STYLES } from '../src/game/terrain.js';
+import { registerDuelistArt, validateAllParts } from '../src/ui/art-compose.js';
+import { DUELISTS } from '../src/game/duelists/index.js';
+
+// The duelists' hulls are assembled from parts at start-up rather than drawn
+// whole, so nothing has registered them by the time this file is imported.
+registerDuelistArt(DUELISTS);
 
 const BAGS = { 'art-crew': CREW_ART, 'art-ships': SHIP_ART, 'art-shmup': SHMUP_ART };
 
@@ -67,6 +73,29 @@ describe('sprite data', () => {
     expect('mid_', 32, 24);
     expect('node_', 14, 14);
     expect('ter_', 16, 16);
+  });
+});
+
+describe('composed duelist art', () => {
+  it('every authored part is 20 rows of 64 legal characters', () => {
+    const errs = validateAllParts();
+    assert.equal(errs.length, 0, errs.slice(0, 6).join(' | '));
+  });
+
+  it('composes a distinct silhouette for every duelist', () => {
+    const seen = new Set(DUELISTS.map(d => Object.values(d.duel.art).join('|')));
+    assert.equal(seen.size, DUELISTS.length, 'two duelists share a hull and a livery');
+  });
+
+  it('draws every composed hull as a 64x40 sprite with something in it', () => {
+    for (const d of DUELISTS) {
+      const sp = pixel.get(`duel_${d.id}`);
+      assert.ok(sp, `${d.id} has no composed sprite`);
+      assert.equal(sp.w, 64, `${d.id} is ${sp.w}px wide`);
+      assert.equal(sp.h, 40, `${d.id} is ${sp.h}px tall`);
+      const ink = sp.rows.join('').split('').filter(c => c !== '.').length;
+      assert.greater(ink, 400, `${d.id} is nearly empty`);
+    }
   });
 });
 

@@ -9,9 +9,10 @@
  * Stats here are the values at threat 1. `scaleEnemy` applies the node's threat.
  */
 
-import { ENEMY_TUNING } from './balance.js';
+import { ENEMY_TUNING, DUEL_TUNING } from './balance.js';
+import { DUELISTS } from './duelists/index.js';
 
-export const ENEMY_CLASSES = ['swarm', 'mid', 'heavy', 'elite'];
+export const ENEMY_CLASSES = ['swarm', 'mid', 'heavy', 'elite', 'duelist'];
 
 export const ENEMIES = {
   // -------------------------------------------------------------------------
@@ -222,6 +223,21 @@ export const ENEMIES = {
   },
 };
 
+/**
+ * The hundred named opponents are ordinary archetypes as far as everything
+ * downstream is concerned.
+ *
+ * Merging them in here rather than teaching the spawner, the scaler and the
+ * renderer about a second kind of enemy is the whole reason this change was
+ * small: a duel encounter names an enemy id and the existing machinery does
+ * the rest. What makes them different is `cls: 'duelist'` — which routes them
+ * through their own growth curve below — and the `duel` block they carry.
+ */
+for (const d of DUELISTS) {
+  if (ENEMIES[d.id]) throw new Error(`duelist id "${d.id}" collides with an existing enemy`);
+  ENEMIES[d.id] = d;
+}
+
 export const ENEMY_IDS = Object.keys(ENEMIES);
 export function getEnemy(id) { return ENEMIES[id] || null; }
 export function enemiesOfClass(cls) { return ENEMY_IDS.filter(id => ENEMIES[id].cls === cls); }
@@ -248,9 +264,18 @@ export const CLASS_TOUGHNESS = ENEMY_TUNING.toughness;
 
 export function scaleEnemy(def, threat) {
   const t = Math.max(1, threat);
+  const duel = def.cls === 'duelist';
+  // A lone opponent is on its own curve.
+  //
+  // The swarm curves are gentle because the encounter's ship COUNT carries
+  // most of the growth: at depth you meet more of them, not much tougher
+  // ones. A duelist has no count to grow, so if it followed the same curve
+  // the deep map would be target practice — its hull has to track the
+  // player's measured damage output (1.098/level) and its guns the player's
+  // measured effective hull (1.050/level), or the fight stops being one.
   const tough = ENEMY_TUNING.toughness[def.cls] ?? 2.5;
-  const hullMul = Math.pow(ENEMY_TUNING.hullGrowth, t - 1);
-  const dmgMul = Math.pow(ENEMY_TUNING.damageGrowth, t - 1);
+  const hullMul = Math.pow(duel ? DUEL_TUNING.hullGrowth : ENEMY_TUNING.hullGrowth, t - 1);
+  const dmgMul = Math.pow(duel ? DUEL_TUNING.damageGrowth : ENEMY_TUNING.damageGrowth, t - 1);
   const rewardMul = 1 + ENEMY_TUNING.rewardGrowth * (t - 1);
   // A bare starting hull meets threat 1-3 with no gear and no levels spent.
   const grace = t >= ENEMY_TUNING.earlyGraceUntil ? 1
@@ -267,8 +292,11 @@ export function scaleEnemy(def, threat) {
     explodes: def.explodes
       ? { ...def.explodes, damage: def.explodes.damage * dmgMul * DAMAGE_SCALE }
       : null,
-    // Fewer, heavier shots rather than a continuous drizzle.
-    fireRate: (def.fireRate || 0) * ENEMY_TUNING.fireRateScale,
+    // Fewer, heavier shots rather than a continuous drizzle. A duelist is
+    // exempt: that scale exists to thin out twelve guns firing at once, and
+    // applied to the only gun on the field it produces a ship that shoots
+    // once every six seconds and a fight made of waiting.
+    fireRate: (def.fireRate || 0) * (duel ? 1 : ENEMY_TUNING.fireRateScale),
     xp: Math.round(def.xp * rewardMul),
     credits: Math.round(def.credits * rewardMul),
     threat: t,

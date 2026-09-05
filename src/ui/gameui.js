@@ -136,7 +136,8 @@ export function renderCombatHud() {
   } else if (obj.kind === 'boss') {
     text = 'DESTROY THE CAPITAL SHIP';
   } else if (obj.kind === 'destroy') {
-    text = `DESTROY THE TARGET`;
+    const left = world.enemies.filter(e => !e.dead && e.tag === obj.tag).length;
+    text = left > 1 ? `DESTROY THE FORMATION — ${left} left` : 'DESTROY THE TARGET';
   } else {
     const left = world.enemies.length + world.pendingSpawns.length;
     text = world.spawner.exhausted ? `CLEAR THE FIELD — ${left} left` : 'CLEAR THE FIELD';
@@ -155,7 +156,7 @@ export function renderCombatHud() {
   const tag = objective === 'destroy' ? world.encounter.objective.tag : 'boss';
   const isTarget = e => !e.dead && (e.tag === tag || (objective === 'boss' && e.isBoss));
   const boss = world.enemies.find(isTarget)
-    || world.enemies.find(e => !e.dead && (e.isBoss || e.tag === 'boss' || e.elite));
+    || world.enemies.find(e => !e.dead && (e.isBoss || e.tag === 'boss' || e.elite || e.named));
   const bossBar = $('#boss-bar');
   show(bossBar, !!boss);
   if (boss) {
@@ -163,7 +164,13 @@ export function renderCombatHud() {
       bossBar.dataset.for = boss.name;
       $('#bb-name').textContent = boss.name.toUpperCase();
     }
-    const frac = Math.max(0, boss.hull / boss.maxHull);
+    // A duel against three hulls is still one opponent. Showing the lead
+    // body's health would say the fight was two thirds won when it was not,
+    // and would jump back to full every time that body died.
+    const squad = world.enemies.filter(isTarget);
+    const frac = world.duelPool > 0 && squad.length
+      ? Math.max(0, squad.reduce((n, e) => n + e.hull + e.shield, 0) / world.duelPool)
+      : Math.max(0, boss.hull / boss.maxHull);
     $('#bb-fill').style.width = `${frac * 100}%`;
     bossBar.classList.toggle('critical', frac <= 0.25);
   } else {

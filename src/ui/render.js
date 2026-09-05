@@ -658,15 +658,37 @@ function drawEnemies(ctx, world, t) {
       ctx.restore();
     }
 
+    // A special move gets a bigger tell than an ordinary shot, and says what
+    // it is. A hundred opponents means a hundred moves to learn, and none of
+    // them is learnable if the player cannot tell which one just started.
+    if (e.casting) {
+      const done = e.casting.castFor > 0 ? 1 - e.casting.casting / e.casting.castFor : 0;
+      ctx.save();
+      ctx.globalAlpha = (0.35 + 0.5 * done) * alpha;
+      ctx.strokeStyle = C.amber;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.r + 40 - 30 * done, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = C.amber;
+      ctx.font = '600 9px ui-monospace, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(e.casting.def.name.toUpperCase(), e.x, e.y - e.r - 20);
+      ctx.restore();
+    }
+
     safeSprite(ctx, e.sprite, e.x, e.y, e.drawScale || 1, {
       center: true,
       alpha,
       tint: e.hitFlash > 0.35 ? '#ffffff'
-        : (e.windup > 0 && e.windupFor > 0 && e.windup < e.windupFor * 0.34) ? '#ff8f6b'
-          : null,
+        : e.invulnTimer > 0 ? '#6f7fa8'
+          : e.reflectTimer > 0 ? '#7fe3ff'
+            : (e.windup > 0 && e.windupFor > 0 && e.windup < e.windupFor * 0.34) ? '#ff8f6b'
+              : null,
     });
 
-    if (e.elite || e.isBoss) {
+    if (e.elite || e.isBoss || e.named) {
       drawHealthBar(ctx, e);
     } else if (e.hull < e.maxHull) {
       drawHealthBar(ctx, e);

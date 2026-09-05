@@ -28,11 +28,12 @@ Die and the run is gone for good.
 - A deterministic, DOM-free simulation the renderer only reads from — which is also how the game is playtested
 - 24 weapons across ten firing behaviours: straight shots, piercing rails, chain lightning, homing swarms, continuous beams, charge shots, mines, gravity wells, fragmenting shards and autonomous drones
 - 27 enemy archetypes across four weight classes, each pairing one of 16 movement behaviours with one of 24 bullet patterns
+- **100 named duelists** — a Hostiles node is one opponent with its own silhouette, AI, health bar and up to four telegraphed special moves, drawn from 32 abilities and 16 duel brains
 - Nine equipment abilities — EMP burst, phase shift, time dilation, escort drones, nova, decoys and more
 - Scrolling tunnel terrain with procedurally generated corridors, and destructible asteroid fields
 
 **Content**
-- **133 encounters** across combat, swarms, elites, asteroid fields, tunnels, survival holds, pursuits, derelicts, capital ships and a three-stage Master Fleet finale
+- **246 encounters**: 100 one-on-one duels plus elites, debris fields, tunnels, survival holds, derelicts, capital ships and a three-stage Master Fleet finale
 - **39 hand-written anomalies** — text encounters with gated choices and weighted outcomes
 - 10 hulls, each with a distinct attribute spread, starting loadout and a perk that changes how it is flown
 - 71 achievements, six of which unlock hulls
@@ -40,7 +41,7 @@ Die and the run is gone for good.
 
 **Everything else**
 - Every sound effect is synthesised at runtime with Web Audio — 76 of them, no audio files
-- 231 hand-authored pixel sprites, written as character grids and validated in CI
+- 231 hand-authored pixel sprites plus 74 hull parts that compose into the duelists' hundred silhouettes, all written as character grids and validated in CI
 - Sound and settings reachable from every screen; volume, mute and gameplay options persist
 - Versioned localStorage saves, autosaved on every jump
 
@@ -128,6 +129,68 @@ everything it earned did not have an economy, it had a scoreboard.
 
 Every one of those numbers lives in `src/game/balance.js`, with the reasoning
 next to it, and can be re-measured or swept from `tests/`.
+
+**v3.0: a Hostiles node is one ship now.**
+
+The crowd was the problem, and no amount of tuning it was going to fix that.
+Ten ships each carrying a tenth of a fight means none of them can afford an
+attack worth learning, because ten of that attack at once is a wall. So every
+Hostiles fight was the same fight — volume — wearing thirty-eight names.
+
+A Hostiles node is now **one named opponent**: its own silhouette, its own AI,
+its own health bar, and up to four telegraphed special moves. Two thirds are a
+single ship; the rest are squadrons of two to five bodies flying as one
+opponent. The forty-four old crowd encounters were not thrown away — they were
+retyped as debris fields, which is where the small ships live now, and the node
+mix was reweighted to match.
+
+| | |
+|---|---|
+| duelists | **100**, in five factions of twenty |
+| hull silhouettes | composed from **74 hand-drawn parts** in six slots x 14 liveries |
+| abilities | **32**, every one telegraphed, 1-4 per ship |
+| duel AI brains | **16**, written for a one-on-one fight |
+| median fight | **40s**, 10% hull, 9% deaths (600 measured duels) |
+| damage from ramming | **1%** |
+
+Sized by measurement, not by feel: the reference pilot lands 52 damage a second
+at threat 1 and 312 at threat 20, so a duelist's hull follows the same 1.098
+curve and a fight is the same length at every depth.
+
+Four things had to change in the engine for a lone opponent to work at all, and
+all four were bugs the crowd had been hiding:
+
+* **Nothing capped a single blow.** A beam does five times a ship's per-shot
+  damage, which at depth is most of a full hull bar in one frame. Deaths ran at
+  30%. No hit may now take more than 28% of the bar — a ceiling on catastrophe,
+  not a softener.
+* **Difficulty was set by flavour.** Ability damage was priced per move, so a
+  deep-band opponent carrying three of them took 49% of the hull bar where a
+  shallow one carrying a single move took 11%. The ships were not the
+  difference; the ability *count* was. The budget is per ship now.
+* **A squadron shared one hull pool but five sets of guns.** A four-body
+  formation cost 24% of the bar where a lone ship of the same budget cost 10%.
+* **Enemy healing had no ceiling.** Repair Weave mends 15% of the bar every 14
+  seconds, which against an armoured hull is more than the pilot's entire net
+  damage output. Six of the hundred were not hard, they were unkillable.
+
+And one in the harness, which had been quietly wrong for a long time:
+
+* **The synthetic pilot never released a charge weapon.** It holds the trigger
+  down; a charge weapon fires on release. It held it for sixty seconds and
+  fired once. Every headless measurement ever taken with a charge primary was
+  taken with the primary silent — a whole weapon class, across every balance
+  pass in this file. It also anchored itself at x = 0.22w and never closed, so
+  an opponent parked at the far wall sat outside beam range forever and the
+  node scored as unwinnable.
+
+Known and left standing: about 0.8% of (ship, threat, seed) combinations still
+run past three minutes. Every one of them wins comfortably on a different gear
+roll — it is the reference ship's loadout variance, not the ship — but a player
+who draws badly will meet a long fight, and disengaging is the answer.
+
+`debug/bestiary.html` renders all hundred from the live modules: silhouette,
+stats, abilities with their tells, and the actual answer to each fight.
 
 **v2.9: the thing hitting you was not the guns.**
 

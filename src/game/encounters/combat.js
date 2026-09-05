@@ -13,11 +13,12 @@ export const COMBAT_ENCOUNTERS = [
   // LOW BAND (1–8) — readable, forgiving, teaches the vocabulary.
   // -------------------------------------------------------------------------
   {
-    id: 'picket_line', name: 'Picket Line', type: 'hostiles', weight: 14,
+    id: 'picket_line', name: 'Picket Line', type: 'asteroid', weight: 14,
     minThreat: 1, maxThreat: 6,
     blurb: 'A thin screen of automated drones, and whatever it calls in.',
     intro: 'Someone left a tripwire out here. It has noticed you.',
     objective: { kind: 'clear' },
+    obstacles: { count: 26, speed: 104, size: 24, toughness: 1.2, contact: 15, spreadX: 5.4 },
     waves: [
       { at: 0, spawn: [{ id: 'picket', count: 5, formation: 'v', delay: 0.3 }] },
       { after: 'cleared', spawn: [{ budget: 0.55, pool: ['picket', 'wasp'], formation: 'arc', delay: 0.2 }] },
@@ -26,11 +27,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'gun_and_wasps', name: 'Standing Patrol', type: 'hostiles', weight: 12,
+    id: 'gun_and_wasps', name: 'Standing Patrol', type: 'asteroid', weight: 12,
     minThreat: 1, maxThreat: 5,
     blurb: 'One Gunship holding a lane. Wasps run it from above and below.',
     intro: 'The Gunship does not chase. It does not need to.',
     objective: { kind: 'clear' },
+    obstacles: { count: 22, speed: 118, size: 24, toughness: 1, contact: 14, spreadX: 5 },
     waves: [
       { at: 0, spawn: [{ id: 'gunship', count: 1, formation: 'column' }] },
       { at: 8, spawn: [{ id: 'wasp', count: 5, formation: 'pincer', delay: 0.15 }] },
@@ -39,11 +41,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'mine_garden', name: 'Mine Garden', type: 'hostiles', weight: 11,
+    id: 'mine_garden', name: 'Mine Garden', type: 'asteroid', weight: 11,
     minThreat: 1, maxThreat: 7,
     blurb: 'Mines seeded across the lane. Turret pods cover the gaps between them.',
     intro: 'Someone planted this and never came back for the harvest.',
     objective: { kind: 'clear' },
+    obstacles: { count: 22, speed: 118, size: 24, toughness: 1, contact: 14, spreadX: 5 },
     waves: [
       { at: 0, spawn: [{ id: 'drifting_mine', count: 6, formation: 'ambush' }] },
       { at: 8, spawn: [{ id: 'turret_pod', count: 2, formation: 'column', gap: 90 }] },
@@ -52,11 +55,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'scout_patrol', name: 'Scout Patrol', type: 'hostiles', weight: 12,
+    id: 'scout_patrol', name: 'Scout Patrol', type: 'asteroid', weight: 12,
     minThreat: 1, maxThreat: 6,
     blurb: 'A Scout runs the lane and leaves. What it told is already on the way.',
     intro: 'It comes in fast, holds just long enough to look at you, and goes.',
     objective: { kind: 'clear' },
+    obstacles: { count: 34, speed: 96, size: 32, toughness: 1.5, contact: 17, spreadX: 6 },
     waves: [
       { at: 0, spawn: [{ id: 'picket', count: 4, formation: 'line', delay: 0.25 }] },
       { at: 7, spawn: [{ id: 'scout', count: 1, formation: 'column' }] },
@@ -65,11 +69,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'wasp_nest', name: 'Wasp Nest', type: 'hostiles', weight: 12,
+    id: 'wasp_nest', name: 'Wasp Nest', type: 'asteroid', weight: 12,
     minThreat: 1, maxThreat: 6,
     blurb: 'Wasps from the edges while Bomblet Carriers seed the space you back into.',
     intro: 'Small things, fast, and there is no corner they have not thought about.',
     objective: { kind: 'clear' },
+    obstacles: { count: 22, speed: 118, size: 24, toughness: 1, contact: 14, spreadX: 5 },
     waves: [
       { at: 0, spawn: [{ id: 'wasp', count: 6, formation: 'arc', delay: 0.15 }] },
       { at: 10, spawn: [{ id: 'bomblet', count: 2, formation: 'column', gap: 80 }] },
@@ -78,11 +83,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'seeker_tide', name: 'Seeker Tide', type: 'hostiles', weight: 12,
+    id: 'seeker_tide', name: 'Seeker Tide', type: 'asteroid', weight: 12,
     minThreat: 1, maxThreat: 7,
     blurb: 'Unarmed ramming pods drive you sideways into a turret sweep.',
     intro: 'The pods have no guns. They do not need any if you keep moving where they want.',
     objective: { kind: 'clear' },
+    obstacles: { count: 34, speed: 96, size: 32, toughness: 1.5, contact: 17, spreadX: 6 },
     waves: [
       { at: 0, spawn: [{ id: 'seeker', count: 4, formation: 'arc', delay: 0.2 }] },
       { at: 9, spawn: [{ id: 'turret_pod', count: 2, formation: 'echelon', gap: 70 }] },
@@ -91,11 +97,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'cold_start', name: 'Cold Start', type: 'hostiles', weight: 9,
+    id: 'cold_start', name: 'Cold Start', type: 'asteroid', weight: 9,
     minThreat: 2, maxThreat: 8,
     blurb: 'Something was already drifting here with its drives cold. It is close.',
     intro: 'Three pods light up at knife range. They have no guns, which is not comfort.',
     objective: { kind: 'clear' },
+    obstacles: { count: 34, speed: 96, size: 32, toughness: 1.5, contact: 17, spreadX: 6 },
     waves: [
       { at: 0, spawn: [{ id: 'seeker', count: 3, formation: 'ambush' }] },
       { at: 6, spawn: [{ budget: 0.55, pool: ['wasp', 'interceptor'], formation: 'random', delay: 0.2 }] },
@@ -106,11 +113,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'splitter_bloom', name: 'Splitter Bloom', type: 'hostiles', weight: 11,
+    id: 'splitter_bloom', name: 'Splitter Bloom', type: 'asteroid', weight: 11,
     minThreat: 2, maxThreat: 9,
     blurb: 'Splitters, and only Splitters. Killing one makes two more.',
     intro: 'The problem gets bigger before it gets smaller. There is no way around that.',
     objective: { kind: 'clear' },
+    obstacles: { count: 26, speed: 104, size: 24, toughness: 1.2, contact: 15, spreadX: 5.4 },
     waves: [
       { at: 0, spawn: [{ id: 'splitter', count: 4, formation: 'arc', delay: 0.2 }] },
       { after: 'cleared', spawn: [{ id: 'splitter', count: 5, formation: 'v', delay: 0.18 }] },
@@ -120,11 +128,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'tender_run', name: 'Tender Run', type: 'hostiles', weight: 11,
+    id: 'tender_run', name: 'Tender Run', type: 'asteroid', weight: 11,
     minThreat: 2, maxThreat: 9,
     blurb: 'A Drone Tender that floods the lane if you leave it alone. It runs when you do not.',
     intro: 'The Tender keeps its distance and keeps building. Its escort is arranged so that chasing it costs you.',
     objective: { kind: 'clear' },
+    obstacles: { count: 40, speed: 140, size: 16, toughness: 0.8, contact: 11, spreadX: 6.5 },
     waves: [
       {
         at: 0,
@@ -140,11 +149,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'lancer_duel', name: 'Lancers', type: 'hostiles', weight: 11,
+    id: 'lancer_duel', name: 'Lancers', type: 'asteroid', weight: 11,
     minThreat: 3, maxThreat: 9,
     blurb: 'Lancers copy your vertical position. Artillery fires where you were going.',
     intro: 'You cannot shake them by climbing. They climb with you, and the heavy shells land where that leaves you.',
     objective: { kind: 'clear' },
+    obstacles: { count: 22, speed: 118, size: 24, toughness: 1, contact: 14, spreadX: 5 },
     waves: [
       { at: 0, spawn: [{ id: 'lancer', count: 2, formation: 'line' }] },
       { at: 10, spawn: [{ id: 'artillery', count: 2, formation: 'column', gap: 90 }] },
@@ -154,11 +164,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'zealot_run', name: 'Zealot Run', type: 'hostiles', weight: 11,
+    id: 'zealot_run', name: 'Zealot Run', type: 'asteroid', weight: 11,
     minThreat: 3, maxThreat: 10,
     blurb: 'Suicide drones from the edges. Gunships hold the ground they push you onto.',
     intro: 'The Zealots do not want to trade. They want you standing still for half a second.',
     objective: { kind: 'clear' },
+    obstacles: { count: 34, speed: 96, size: 32, toughness: 1.5, contact: 17, spreadX: 6 },
     waves: [
       { at: 0, spawn: [{ id: 'zealot', count: 4, formation: 'pincer', delay: 0.3 }] },
       { at: 8, spawn: [{ id: 'gunship', count: 2, formation: 'line' }] },
@@ -169,11 +180,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'raider_boarding', name: 'Boarding Run', type: 'hostiles', weight: 11,
+    id: 'raider_boarding', name: 'Boarding Run', type: 'asteroid', weight: 11,
     minThreat: 4, maxThreat: 11,
     blurb: 'Raiders close to shotgun range on purpose. Seekers make backing off cost the same.',
     intro: 'They are not paid to shoot from distance. Nothing out here is.',
     objective: { kind: 'clear' },
+    obstacles: { count: 26, speed: 104, size: 24, toughness: 1.2, contact: 15, spreadX: 5.4 },
     waves: [
       { at: 0, spawn: [{ id: 'raider', count: 2, formation: 'v', gap: 60 }] },
       {
@@ -189,11 +201,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'scrap_court', name: 'Scrap Court', type: 'hostiles', weight: 10,
+    id: 'scrap_court', name: 'Scrap Court', type: 'asteroid', weight: 10,
     minThreat: 4, maxThreat: 12,
     blurb: 'Turret pods welded into a drifting minefield. Raiders arrive while you are threading it.',
     intro: 'Someone made a room out of wreckage and left guns in the walls.',
     objective: { kind: 'clear' },
+    obstacles: { count: 26, speed: 104, size: 24, toughness: 1.2, contact: 15, spreadX: 5.4 },
     waves: [
       {
         at: 0,
@@ -210,11 +223,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'holding_pattern', name: 'Holding Pattern', type: 'hostiles', weight: 10,
+    id: 'holding_pattern', name: 'Holding Pattern', type: 'asteroid', weight: 10,
     minThreat: 4, maxThreat: 11,
     blurb: 'Your drive is spooling. Nothing here has to die — you only have to still be here.',
     intro: 'Seventy seconds. The field never empties, and a Tender arrives halfway through to make sure of it.',
     objective: { kind: 'clear' },
+    obstacles: { count: 16, speed: 74, size: 40, toughness: 2.6, contact: 22, spreadX: 4.4 },
     waves: [
       { at: 0, spawn: [{ budget: 0.4, pool: ['picket', 'wasp'], formation: 'arc', delay: 0.2 }] },
       { at: 14, spawn: [{ budget: 0.45, pool: ['interceptor', 'seeker'], formation: 'pincer', delay: 0.2 }] },
@@ -229,11 +243,12 @@ export const COMBAT_ENCOUNTERS = [
   // MID BAND (5–14) — auras, spawners, ships that must be killed in an order.
   // -------------------------------------------------------------------------
   {
-    id: 'aegis_battery', name: 'Aegis Battery', type: 'hostiles', weight: 11,
+    id: 'aegis_battery', name: 'Aegis Battery', type: 'asteroid', weight: 11,
     minThreat: 5, maxThreat: 12,
     blurb: 'Artillery sat behind an Aegis Pod. Nothing dies until the pod does.',
     intro: 'The pod shelters everything near it and refuses to come to you. The guns do not have to move at all.',
     objective: { kind: 'clear' },
+    obstacles: { count: 26, speed: 104, size: 24, toughness: 1.2, contact: 15, spreadX: 5.4 },
     waves: [
       {
         at: 0,
@@ -255,11 +270,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'fighter_wing', name: 'Fighter Wing', type: 'hostiles', weight: 11,
+    id: 'fighter_wing', name: 'Fighter Wing', type: 'asteroid', weight: 11,
     minThreat: 5, maxThreat: 12,
     blurb: 'Fighters hold the far side laying down spread fire. Interceptors dive through it.',
     intro: 'The Fighters want you pinned against the left wall. The Interceptors are what happens if you go.',
     objective: { kind: 'clear' },
+    obstacles: { count: 16, speed: 74, size: 40, toughness: 2.6, contact: 22, spreadX: 4.4 },
     waves: [
       { at: 0, spawn: [{ id: 'fighter', count: 2, formation: 'line' }] },
       { at: 12, spawn: [{ id: 'interceptor', count: 4, formation: 'pincer', delay: 0.2 }] },
@@ -275,11 +291,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'bomblet_lattice', name: 'Lattice', type: 'hostiles', weight: 10,
+    id: 'bomblet_lattice', name: 'Lattice', type: 'asteroid', weight: 10,
     minThreat: 5, maxThreat: 13,
     blurb: 'Bomblet Carriers build a mine lattice while drones push you into it.',
     intro: 'Every second you spend not killing carriers, the playable part of the field gets smaller.',
     objective: { kind: 'clear' },
+    obstacles: { count: 40, speed: 140, size: 16, toughness: 0.8, contact: 11, spreadX: 6.5 },
     waves: [
       {
         at: 0,
@@ -301,11 +318,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'bulwark_advance', name: 'Bulwark Advance', type: 'hostiles', weight: 11,
+    id: 'bulwark_advance', name: 'Bulwark Advance', type: 'asteroid', weight: 11,
     minThreat: 6, maxThreat: 14,
     blurb: 'Two Bulwarks abreast, unhurried and armoured. Wasps come from above and below.',
     intro: 'They do not manoeuvre. They advance. Cover out here is a thing you make, not a thing you find.',
     objective: { kind: 'clear' },
+    obstacles: { count: 16, speed: 74, size: 40, toughness: 2.6, contact: 22, spreadX: 4.4 },
     waves: [
       { at: 0, spawn: [{ id: 'bulwark', count: 2, formation: 'line' }] },
       { at: 10, spawn: [{ id: 'wasp', count: 8, formation: 'pincer', delay: 0.12 }] },
@@ -322,11 +340,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'relay_strike', name: 'Relay Strike', type: 'hostiles', weight: 10,
+    id: 'relay_strike', name: 'Relay Strike', type: 'asteroid', weight: 10,
     minThreat: 6, maxThreat: 14,
     blurb: 'Three anchored relays calling in the patrol. Kill the relays; the patrol is optional.',
     intro: 'The pods sit still and talk. Everything arriving is because of them, and none of it has to be fought.',
     objective: { kind: 'clear' },
+    obstacles: { count: 26, speed: 104, size: 24, toughness: 1.2, contact: 15, spreadX: 5.4 },
     waves: [
       {
         at: 0,
@@ -343,11 +362,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'interceptor_storm', name: 'Relay Storm', type: 'hostiles', weight: 10,
+    id: 'interceptor_storm', name: 'Relay Storm', type: 'asteroid', weight: 10,
     minThreat: 6, maxThreat: 14,
     blurb: 'Interceptors in relays past two Artillery platforms firing where you have to be.',
     intro: 'The Interceptors sweep through and come back around. The guns cover the only place their pass leaves you.',
     objective: { kind: 'clear' },
+    obstacles: { count: 26, speed: 104, size: 24, toughness: 1.2, contact: 15, spreadX: 5.4 },
     waves: [
       { at: 0, spawn: [{ id: 'interceptor', count: 8, formation: 'arc', delay: 0.12 }] },
       { at: 10, spawn: [{ id: 'artillery', count: 2, formation: 'column', gap: 110 }] },
@@ -378,11 +398,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'phantom_hunt', name: 'Ghost Screen', type: 'hostiles', weight: 9,
+    id: 'phantom_hunt', name: 'Ghost Screen', type: 'asteroid', weight: 9,
     minThreat: 7, maxThreat: 15,
     blurb: 'Two Phantoms hidden in a drone screen. They are the only things that matter.',
     intro: 'They cloak every four seconds. The drones are cover, and the drones do not have to die.',
     objective: { kind: 'clear' },
+    obstacles: { count: 34, speed: 96, size: 32, toughness: 1.5, contact: 17, spreadX: 6 },
     waves: [
       {
         at: 0,
@@ -398,11 +419,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'shielded_swarm', name: 'Shielded Cloud', type: 'hostiles', weight: 9,
+    id: 'shielded_swarm', name: 'Shielded Cloud', type: 'asteroid', weight: 9,
     minThreat: 7, maxThreat: 15,
     blurb: 'Aegis Pods buried in a drone cloud. Everything is twice the work until you dig them out.',
     intro: 'The pods run from you at exactly the speed of the cloud they are hiding in.',
     objective: { kind: 'clear' },
+    obstacles: { count: 40, speed: 140, size: 16, toughness: 0.8, contact: 11, spreadX: 6.5 },
     waves: [
       {
         at: 0,
@@ -424,11 +446,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'missile_screen', name: 'Missile Screen', type: 'hostiles', weight: 10,
+    id: 'missile_screen', name: 'Missile Screen', type: 'asteroid', weight: 10,
     minThreat: 8, maxThreat: 16,
     blurb: 'Homing fire from the back of the field. A mine drift across the front of it.',
     intro: 'The missiles make you move. The mines decide where moving is allowed.',
     objective: { kind: 'clear' },
+    obstacles: { count: 40, speed: 140, size: 16, toughness: 0.8, contact: 11, spreadX: 6.5 },
     waves: [
       {
         at: 0,
@@ -450,11 +473,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'hive_break', name: 'Hive', type: 'hostiles', weight: 9,
+    id: 'hive_break', name: 'Hive', type: 'asteroid', weight: 9,
     minThreat: 9, maxThreat: 18,
     blurb: 'Two Tenders and a Battle Carrier, all producing faster than you can clear.',
     intro: 'Nothing here is dangerous on its own. All of it is still here in two minutes if you fight the output instead of the source.',
     objective: { kind: 'clear' },
+    obstacles: { count: 22, speed: 118, size: 24, toughness: 1, contact: 14, spreadX: 5 },
     waves: [
       {
         at: 0,
@@ -470,11 +494,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'sentinel_cordon', name: 'Sentinel Cordon', type: 'hostiles', weight: 10,
+    id: 'sentinel_cordon', name: 'Sentinel Cordon', type: 'asteroid', weight: 10,
     minThreat: 9, maxThreat: 17,
     blurb: 'Anchored Sentinels throwing overlapping rings. There is a rhythm to the gaps.',
     intro: 'They do not move and they do not aim. They do not have to; the rings intersect where you are standing.',
     objective: { kind: 'clear' },
+    obstacles: { count: 34, speed: 96, size: 32, toughness: 1.5, contact: 17, spreadX: 6 },
     waves: [
       { at: 0, spawn: [{ id: 'sentinel', count: 3, formation: 'echelon', gap: 80 }] },
       { at: 16, spawn: [{ id: 'turret_pod', count: 4, formation: 'pincer', delay: 0.2 }] },
@@ -523,11 +548,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'carrier_cull', name: 'Carrier Cull', type: 'hostiles', weight: 9,
+    id: 'carrier_cull', name: 'Carrier Cull', type: 'asteroid', weight: 9,
     minThreat: 11, maxThreat: 20,
     blurb: 'Two Battle Carriers bleeding Interceptors. The swarm is not the fight.',
     intro: 'The escorts will outlive you if you let them. The carriers will not, if you can reach them.',
     objective: { kind: 'clear' },
+    obstacles: { count: 34, speed: 96, size: 32, toughness: 1.5, contact: 17, spreadX: 6 },
     waves: [
       {
         at: 0,
@@ -569,11 +595,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'splinter_storm', name: 'Splinter Storm', type: 'hostiles', weight: 8,
+    id: 'splinter_storm', name: 'Splinter Storm', type: 'asteroid', weight: 8,
     minThreat: 12, maxThreat: 20,
     blurb: 'Splitters under an Aegis aura. Slower to kill, and killing them doubles them.',
     intro: 'Every one you break makes two more, and the pods make breaking them take longer.',
     objective: { kind: 'clear' },
+    obstacles: { count: 34, speed: 96, size: 32, toughness: 1.5, contact: 17, spreadX: 6 },
     waves: [
       {
         at: 0,
@@ -590,11 +617,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'gun_line', name: 'Gun Line', type: 'hostiles', weight: 9,
+    id: 'gun_line', name: 'Gun Line', type: 'asteroid', weight: 9,
     minThreat: 13, maxThreat: 20,
     blurb: 'Artillery and Sentinels dug in behind a Bulwark screen. The screen is slow; the guns are not.',
     intro: 'Three hulls of armour between you and the things doing the damage, and they are walking toward you.',
     objective: { kind: 'clear' },
+    obstacles: { count: 26, speed: 104, size: 24, toughness: 1.2, contact: 15, spreadX: 5.4 },
     waves: [
       {
         at: 0,
@@ -611,11 +639,12 @@ export const COMBAT_ENCOUNTERS = [
   },
 
   {
-    id: 'siege_break', name: 'Siege', type: 'hostiles', weight: 8,
+    id: 'siege_break', name: 'Siege', type: 'asteroid', weight: 8,
     minThreat: 13, maxThreat: 20,
     blurb: 'You will not clear this. You only have to be alive at the end of it.',
     intro: 'Eighty seconds under a siege line. Killing things buys room, not victory.',
     objective: { kind: 'clear' },
+    obstacles: { count: 16, speed: 74, size: 40, toughness: 2.6, contact: 22, spreadX: 4.4 },
     waves: [
       {
         at: 0,

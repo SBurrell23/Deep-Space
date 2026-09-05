@@ -17,7 +17,7 @@
 
 export const SHAPE_ENCOUNTERS = [
   {
-    id: 'picket_wall', name: 'The Picket Wall', type: 'hostiles', weight: 14,
+    id: 'picket_wall', name: 'The Picket Wall', type: 'asteroid', weight: 14,
     minThreat: 2, maxThreat: 11,
     blurb: 'A line across the lane. There is a way round it.',
     intro:
@@ -25,6 +25,7 @@ export const SHAPE_ENCOUNTERS = [
       + 'everything the same way, which is efficient and makes them predictable. '
       + 'The gaps are at the top and the bottom, and they know that too.',
     objective: { kind: 'clear' },
+    obstacles: { count: 16, speed: 74, size: 40, toughness: 2.6, contact: 22, spreadX: 4.4 },
     waves: [
       { at: 0, spawn: [{ id: 'turret_pod', count: 7, formation: 'gauntlet', move: 'entrench', delay: 0.1 }] },
       { at: 12, spawn: [{ id: 'gunship', count: 4, formation: 'v', delay: 0.2 }] },
@@ -35,7 +36,7 @@ export const SHAPE_ENCOUNTERS = [
   },
 
   {
-    id: 'the_narrows', name: 'The Narrows', type: 'hostiles', weight: 13,
+    id: 'the_narrows', name: 'The Narrows', type: 'asteroid', weight: 13,
     minThreat: 4, maxThreat: 15,
     blurb: 'Guns above and below. The middle is the shooting gallery.',
     intro:
@@ -44,6 +45,7 @@ export const SHAPE_ENCOUNTERS = [
       + 'of it. You can go through fast, or you can go along the edge and take them '
       + 'apart one bank at a time.',
     objective: { kind: 'clear' },
+    obstacles: { count: 34, speed: 96, size: 32, toughness: 1.5, contact: 17, spreadX: 6 },
     waves: [
       { at: 0, spawn: [{ id: 'lancer', count: 4, formation: 'crossfire', move: 'entrench', delay: 0.15 }] },
       { at: 16, spawn: [{ id: 'missile_boat', count: 2, formation: 'crossfire', move: 'entrench', delay: 0.25 }] },
@@ -54,7 +56,7 @@ export const SHAPE_ENCOUNTERS = [
   },
 
   {
-    id: 'the_shell', name: 'Shell Formation', type: 'hostiles', weight: 12,
+    id: 'the_shell', name: 'Shell Formation', type: 'asteroid', weight: 12,
     minThreat: 5, maxThreat: 16,
     blurb: 'A screen around something worth screening.',
     intro:
@@ -62,6 +64,7 @@ export const SHAPE_ENCOUNTERS = [
       + 'the thing they were built to keep alive. Nothing in the shell will hurt you '
       + 'much. Everything inside it will.',
     objective: { kind: 'clear' },
+    obstacles: { count: 16, speed: 74, size: 40, toughness: 2.6, contact: 22, spreadX: 4.4 },
     waves: [
       {
         at: 0,
@@ -77,7 +80,7 @@ export const SHAPE_ENCOUNTERS = [
   },
 
   {
-    id: 'behind_you', name: 'Behind You', type: 'hostiles', weight: 11,
+    id: 'behind_you', name: 'Behind You', type: 'asteroid', weight: 11,
     minThreat: 3, maxThreat: 14,
     blurb: 'They waited for you to pass, then lit their drives.',
     intro:
@@ -85,6 +88,7 @@ export const SHAPE_ENCOUNTERS = [
       + 'they are between you and the way you came. Everything you have learned '
       + 'about which way to point is briefly wrong.',
     objective: { kind: 'clear' },
+    obstacles: { count: 16, speed: 74, size: 40, toughness: 2.6, contact: 22, spreadX: 4.4 },
     waves: [
       { at: 0, spawn: [{ id: 'raider', count: 5, formation: 'rear', move: 'advance', delay: 0.18 }] },
       { at: 10, spawn: [{ id: 'interceptor', count: 4, formation: 'line', delay: 0.15 }] },
@@ -95,13 +99,14 @@ export const SHAPE_ENCOUNTERS = [
   },
 
   {
-    id: 'anvil_line', name: 'Anvil Line', type: 'hostiles', weight: 10,
+    id: 'anvil_line', name: 'Anvil Line', type: 'asteroid', weight: 10,
     minThreat: 8, maxThreat: 20,
     blurb: 'A wall in front, a hammer coming in behind it.',
     intro:
       'The line is there to hold you still. It is very good at that, and it is not '
       + 'what kills you. Listen for the second engine note underneath the first.',
     objective: { kind: 'clear' },
+    obstacles: { count: 16, speed: 74, size: 40, toughness: 2.6, contact: 22, spreadX: 4.4 },
     waves: [
       { at: 0, spawn: [{ id: 'sentinel', count: 5, formation: 'gauntlet', move: 'entrench', delay: 0.15 }] },
       { at: 14, spawn: [{ id: 'reaper', count: 2, formation: 'rear', move: 'advance', delay: 0.4 }] },
@@ -112,7 +117,7 @@ export const SHAPE_ENCOUNTERS = [
   },
 
   {
-    id: 'closing_iris', name: 'Closing Iris', type: 'hostiles', weight: 10,
+    id: 'closing_iris', name: 'Closing Iris', type: 'asteroid', weight: 10,
     minThreat: 10, maxThreat: 20,
     blurb: 'A ring, and it is getting smaller.',
     intro:
@@ -120,6 +125,7 @@ export const SHAPE_ENCOUNTERS = [
       + 'flank because every side is the same side. The only direction that has ever '
       + 'worked here is through.',
     objective: { kind: 'clear' },
+    obstacles: { count: 22, speed: 118, size: 24, toughness: 1, contact: 14, spreadX: 5 },
     waves: [
       { at: 0, spawn: [{ id: 'seeker', count: 6, formation: 'shell', radius: 230, move: 'orbit', delay: 0.12 }] },
       { at: 12, spawn: [{ id: 'turret_pod', count: 5, formation: 'shell', radius: 185, move: 'guard', delay: 0.1 }] },

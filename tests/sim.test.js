@@ -184,10 +184,23 @@ describe('simulation — damage', () => {
   it('ends the encounter when the hull reaches zero', () => {
     const { world } = makeWorld(SKIRMISH);
     world.player.shield = 0;
-    damagePlayer(world, 1e6);
+    // No single blow can empty the bar any more (see balance.js), so this
+    // takes several — which is exactly the property being protected.
+    for (let i = 0; i < 40 && world.state === 'playing'; i++) damagePlayer(world, 1e6);
     assert.equal(world.state, 'lost');
     assert.equal(world.outcome, 'destroyed');
     assert.equal(world.player.hull, 0, 'hull should floor at zero, not go negative');
+  });
+
+  it('caps any single blow at a fraction of the hull bar', () => {
+    const { world } = makeWorld(SKIRMISH);
+    const p = world.player;
+    p.shield = 0;
+    const before = p.hull;
+    damagePlayer(world, 1e6);
+    const took = before - p.hull;
+    assert.ok(took <= p.maxHull * 0.29, `one hit took ${took} of ${p.maxHull}`);
+    assert.ok(took > p.maxHull * 0.2, 'the cap should still be a heavy hit');
   });
 
   it('never heals above maximum, and never past the fight-s allowance', () => {

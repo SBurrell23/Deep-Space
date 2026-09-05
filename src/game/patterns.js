@@ -10,6 +10,8 @@
  * RIGHT and travel in -x. Angle 0 points +x (right), PI points left.
  */
 
+import { DUEL_MOVEMENTS } from './duel-ai.js';
+
 const TAU = Math.PI * 2;
 
 // ---------------------------------------------------------------------------
@@ -21,6 +23,12 @@ const TAU = Math.PI * 2;
 // ---------------------------------------------------------------------------
 
 export const MOVEMENTS = {
+  // The duel brains live in their own file — sixteen behaviours written for a
+  // one-on-one fight, where staying on the field and staying readable matter
+  // far more than they do for a ship that is one of twelve. They are merged in
+  // here so `e.move` remains a single flat namespace.
+  ...DUEL_MOVEMENTS,
+
   /** Straight in, no cleverness. */
   straight(e, world, dt) {
     e.vx = -e.speed;

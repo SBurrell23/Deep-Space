@@ -102,7 +102,10 @@ export const BALANCE = {
     // the rhythm of, and with its escort screen cut to a third it was dying in
     // twenty-two seconds — the whole encounter resolved before its later waves
     // had even arrived.
-    toughness: { swarm: 19.6, mid: 11.4, heavy: 7.4, elite: 5.8 },
+    // A duelist is 1 because it does not use this at all: its hull is
+    // already an absolute pool computed in duelists/index.js, since one
+    // opponent's toughness is the fight rather than a modifier on it.
+    toughness: { swarm: 19.6, mid: 11.4, heavy: 7.4, elite: 5.8, duelist: 1 },
 
     /**
      * Per-threat-level compounding.
@@ -177,6 +180,22 @@ export const BALANCE = {
      * much and no more — the rest you carry out with you, which is what makes
      * hull a run-long resource and gives gold something to buy.
      */
+    /**
+     * No single blow may take more than this fraction of the hull bar.
+     *
+     * Death is meant to arrive at the end of a bad stretch, not out of a
+     * clear sky — that is the design the rest of this file serves, and one
+     * uncapped hit is the shortest route to breaking it. A named opponent's
+     * heaviest move is a beam at five times its per-shot damage, which at
+     * depth is most of a full bar in a single frame: the difference between
+     * a fight you lost and a fight you did not get to have.
+     *
+     * Deliberately generous. It is a ceiling on catastrophe, not a softener:
+     * almost nothing in the game reaches it, and the things that do are
+     * supposed to be frightening.
+     */
+    maxHitFraction: 0.28,
+
     healPerEncounter: 0.06,
 
     /**
@@ -232,6 +251,146 @@ export const BALANCE = {
   },
 
   // -------------------------------------------------------------------------
+  // Duels
+  // -------------------------------------------------------------------------
+  /**
+   * A Hostiles node is one ship now, not a crowd.
+   *
+   * The crowd was the problem. Ten ships each carrying a tenth of a fight
+   * cannot any of them be interesting: none can afford an attack worth
+   * learning, because ten of that attack at once is a wall. The fight was
+   * therefore always the same fight — volume — wearing thirty-eight names.
+   *
+   * One named opponent can spend its whole budget on being itself: a
+   * telegraphed move you learn to read, a movement pattern you learn to
+   * exploit, a weakness you learn to wait for. That is a fight you can get
+   * better at, which is the thing the crowd could never offer.
+   *
+   * The hull pool below is measured, not guessed. The reference pilot lands
+   * 52 damage a second at threat 1 and 312 at threat 20 (tests/curve.js), a
+   * 1.098 compounding curve — so a duelist's hull follows the same curve, and
+   * the fight stays the same length at every depth. `hullBase` is set for
+   * roughly fifty seconds of that output at the two thirds uptime a moving,
+   * shooting opponent actually allows.
+   */
+  duels: {
+    /**
+     * Total hull+shield pool for the whole opponent at threat 1.
+     *
+     * Measured twice. The reference pilot lands 52 damage a second at threat
+     * one, so this is about sixty-five seconds of theoretical output, which
+     * comes out at forty-odd seconds of real fighting once dodging,
+     * repositioning and the opponent's own evasion are paid for. Half of it
+     * produced twenty-three-second fights, and twenty-three seconds is not
+     * long enough to show the player a four-move opponent even once.
+     */
+    hullBase: 3300,
+
+    /**
+     * Matched to the player's measured damage growth, NOT to the swarm
+     * curve. The ordinary enemy grows at 1.070 because ten of them arrive
+     * together and the count carries the rest; a lone ship has to keep pace
+     * with the player on its own or the deep map turns into target practice.
+     */
+    hullGrowth: 1.085,
+
+    /**
+    * Per-bullet damage at damageMul 1, before the global damage scale.
+    *
+    * Set so an ordinary shot costs about five per cent of the bar and the
+    * heaviest telegraphed move about a fifth of it. At ten, which is what
+    * the crowd's numbers suggested, a duel cost 37% of the hull and killed
+    * the reference pilot three times in ten: one opponent firing unthinned
+    * puts as many shots in the air as the ten it replaced, so it cannot also
+    * hit as hard as one of ten.
+    */
+    damageBase: 3.8,
+
+    /**
+     * Matched to the player's measured effective hull, which grows 1.051 a
+     * level (246+73 at threat 1, 580+246 at twenty). The swarm figure of
+     * 1.008 is almost flat because at depth you meet MORE guns; a duelist
+     * only ever has its own, so its shots have to keep up on their own.
+     */
+    damageGrowth: 1.050,
+
+    /**
+     * Seconds of visible wind-up before an opponent's ordinary shot.
+     *
+     * Longer than the crowd's 0.34. A tell only has to compete with the other
+     * tells on screen, and in a duel there are none — so it can afford to be
+     * legible, and the fight can afford to hit harder because of it.
+     */
+    windup: 0.46,
+
+    /**
+     * Armour is folded back out of the hull pool.
+     *
+     * Armour multiplies effective hull, so a ship with 0.30 of it and the
+     * same pool is a 43% longer fight for no reason the player can see. Since
+     * a hundred duelists all have to take about the same time to kill,
+     * armour buys texture — resistance to chip damage, a reason to hit it
+     * with something bigger — rather than duration.
+     */
+    armourCompensation: true,
+
+    /**
+     * How much of its own hull an opponent may put back over a whole fight.
+     *
+     * The same lesson the player's healing taught, learned again from the
+     * other side. Repair Weave mends fifteen per cent of the bar every
+     * fourteen seconds, which is a little over one per cent a second: against
+     * a lightly armoured hull that is a texture, and against a heavily
+     * armoured one it is more than the reference pilot's entire net damage
+     * output. Six of the hundred were literally unkillable — not hard,
+     * unkillable — and the fight ran to the three-minute cap with the ship
+     * above half hull.
+     *
+     * A budget keeps mending as a phase that resets a fight's momentum, and
+     * stops it being a wall the player cannot get through.
+     */
+    healPerFight: 0.35,
+
+    /**
+     * Ability damage, as a fraction of the ship's ordinary shot.
+     *
+     * A special move is several hits, a wide beam or a lingering field, so
+     * pricing each one at a full shot's worth made abilities most of the
+     * incoming damage in the game: sixteen casts a fight, and a deep-band
+     * opponent carrying three moves took forty-nine per cent of the hull bar
+     * where a shallow one carrying a single move took eleven. The ships were
+     * not the difference. The ability COUNT was — which meant difficulty was
+     * being set by a decision five authors made about flavour.
+     *
+     * So the budget is per ship, not per move: `2 / (1 + moves)` splits it
+     * between them. One move lands at full weight, four at two fifths each.
+     * A four-move opponent is still harder — more to read, more to time —
+     * but it is harder because there is more of it, not because it was
+     * silently handed four times the damage.
+     */
+    abilityDamageScale: 0.8,
+
+    /** Hardest total damage reduction a duelist may reach, armour and all. */
+    armourCeiling: 0.6,
+
+    /** What clearing one pays, before the per-threat reward growth. */
+    xpBase: 150,
+    creditsBase: 46,
+
+    /**
+     * Seconds between an opponent's special moves, floor across all of them.
+     *
+     * Abilities declare their own cooldowns, but two landing together reads
+     * as noise rather than as a move, and a hundred authors will eventually
+     * line two up. One at a time, always.
+     */
+    abilityGap: 1.6,
+
+    /** Seconds before an opponent may use any ability at all. */
+    abilityGrace: 3.5,
+  },
+
+  // -------------------------------------------------------------------------
   // Economy
   // -------------------------------------------------------------------------
   economy: {
@@ -252,3 +411,4 @@ export const ENEMY_TUNING = BALANCE.enemies;
 export const DEFENCE_TUNING = BALANCE.defence;
 export const ENCOUNTER_TUNING = BALANCE.encounters;
 export const ECONOMY_TUNING = BALANCE.economy;
+export const DUEL_TUNING = BALANCE.duels;

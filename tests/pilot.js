@@ -161,8 +161,23 @@ export function pilotInput(world, pilot, dt = 1 / 60) {
   }
 
   // --- station keeping ---
-  ax += (world.w * 0.22 - p.x) / 300;
-  ay += ((world.h / 2) - p.y) / 600;
+  //
+  // Holding the left quarter of the field is right when the fight comes to
+  // you, and completely wrong when it does not. A duelist that parks at the
+  // far wall is 620px away from x = 0.22w, which is further than a beam
+  // reaches: the pilot fired twelve hundred shots at a stationary opponent,
+  // landed none of them, and the encounter was scored as unwinnable. A player
+  // would simply have flown over. So the pilot closes to a working range and
+  // only falls back on the lane when there is nothing to close on.
+  const standoff = 300;
+  if (target && bestD > standoff) {
+    const urge = Math.min(1, (bestD - standoff) / 240);
+    ax += ((target.x - p.x) / bestD) * urge * 1.7;
+    ay += ((target.y - p.y) / bestD) * urge * 0.7;
+  } else {
+    ax += (world.w * 0.22 - p.x) / 300;
+  }
+  ay += ((world.h / 2) - p.y) / 900;
 
   // Terrain dominates everything else: hitting a wall is never worth it.
   if (world.corridor) {
@@ -186,8 +201,21 @@ export function pilotInput(world, pilot, dt = 1 / 60) {
   inp.moveY = clamp(ay / mag, -1, 1);
 
   // --- triggers ---
-  inp.firePrimary = !!target && p.energy > p.maxEnergy * 0.08;
-  inp.fireSecondary = !!target && bestD < 520 && p.energy > p.maxEnergy * 0.45;
+  //
+  // A charge weapon fires on RELEASE, so a pilot that simply holds the trigger
+  // charges to full and never shoots. It held it for sixty seconds and fired
+  // once: every headless measurement ever taken with a charge primary was
+  // taken with the primary silent, which is most of a class of weapons and
+  // several years of tuning decisions. Hold to full, then let go.
+  const charged = (which) => {
+    const wep = p[which];
+    if (!wep || wep.behaviour !== 'charge') return true;
+    return p.charging[which] < wep.chargeTime * 0.96;
+  };
+
+  inp.firePrimary = !!target && p.energy > p.maxEnergy * 0.08 && charged('primary');
+  inp.fireSecondary = !!target && bestD < 520 && p.energy > p.maxEnergy * 0.45
+    && charged('secondary');
   inp.dash = danger > 1.5 && p.dashCharges > 0 && pilot.rng.chance(0.25 * pilot.skill);
 
   inp.abilities[0] = !!p.abilities[0] && p.abilities[0].timer <= 0

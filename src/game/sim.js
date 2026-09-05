@@ -15,7 +15,8 @@ import { Spawner } from './spawner.js';
 import { Corridor, seedObstacles } from './terrain.js';
 import { resolveWeapon, shotInterval } from './weapons.js';
 import { ENEMIES } from './enemies.js';
-import { DEFENCE_TUNING, ENEMY_TUNING } from './balance.js';
+import { DEFENCE_TUNING, ENEMY_TUNING, DUEL_TUNING } from './balance.js';
+import { DUEL_ABILITIES } from './duel-abilities.js';
 
 export const WORLD_W = 960;
 export const WORLD_H = 540;
@@ -73,6 +74,10 @@ export function createWorld({ encounter, threat, ship, rng, seed = 0, width = WO
     zones: [],
     beams: [],
     mines: [],
+    // Gravity effects an opponent leaves on the field. Kept as world state
+    // rather than as a flag on the player because several may overlap and
+    // each has its own lifetime.
+    pulls: [],
     pendingSpawns: [],
 
     input: blankInput(),
@@ -81,6 +86,9 @@ export function createWorld({ encounter, threat, ship, rng, seed = 0, width = WO
     // Time dilation and hit-stop both scale the simulation, never the frame.
     timeScale: 1,
     slowUntil: 0,
+
+    /** Combined hull+shield of every tagged body in a duel. */
+    duelPool: 0,
 
     scrollX: 0,
     scrollSpeed: encounter.arena?.scroll ?? 0,
@@ -228,6 +236,7 @@ export function update(world, rawDt) {
   updatePickups(world, dt);
   updateMines(world, dt);
   updateZones(world, dt);
+  updatePulls(world, dt);
   updateBeams(world, dt);
   updateEffects(world, dt);
   resolveCollisions(world, dt);
@@ -314,6 +323,20 @@ function updatePlayer(world, dt) {
 
   p.invuln = Math.max(0, p.invuln - dt);
   p.hitFlash = Math.max(0, p.hitFlash - dt * 4);
+
+  // --- gravity ---
+  // Applied as acceleration, never as a position set: a snare that teleports
+  // you is a hit you could not have avoided, and everything in this game is
+  // meant to be avoidable.
+  for (const g of world.pulls) {
+    if (g.dead) continue;
+    const dx = g.x - p.x, dy = g.y - p.y;
+    const d = Math.hypot(dx, dy);
+    if (d > g.radius || d < 1) continue;
+    const f = g.force * (1 - d / g.radius) * dt;
+    p.vx += (dx / d) * f;
+    p.vy += (dy / d) * f;
+  }
 
   // --- bounds and terrain ---
   const m = 18;
@@ -754,6 +777,28 @@ function makeEnemy(world, spec) {
     cloak: def.cloak ? { ...def.cloak, t: world.rng.float(0, def.cloak.period), hidden: false } : null,
     windup: 0,
     windupFor: 0,
+
+    // --- named opponents -----------------------------------------------
+    // A duelist is the whole encounter, so it gets a health bar, it is not
+    // allowed to leave the field, and it carries special moves of its own.
+    named: !!def.named,
+    duel: def.duel || null,
+    abilities: buildEnemyAbilities(def),
+    abilityLock: DUEL_TUNING.abilityGrace,
+    casting: null,
+    // Transient states an ability can put the ship into. All of them are
+    // windows the player can wait out; none of them is a wall.
+    invulnTimer: 0,
+    reflectTimer: 0,
+    armourBonus: 0, armourBonusTimer: 0,
+    speedMul: 1, speedMulTimer: 0,
+    fireRateMul: 1, fireRateMulTimer: 0,
+    rootTimer: 0,
+    lungeMul: 1, lungeTimer: 0,
+    baseSpeed: def.speed,
+    /** How much hull and shield this ship may still put back. See balance.js. */
+    healBudget: (def.hull || 0) * DUEL_TUNING.healPerFight,
+
     isBoss: !!spec.def.isBoss,
     tag: spec.tag,
 
@@ -768,6 +813,10 @@ function makeEnemy(world, spec) {
     dead: false,
   };
   world.stats.spawned++;
+  // A squadron is one opponent with several bodies, so its health bar has to
+  // be the sum of them. Accumulated as they arrive rather than counted later,
+  // because by the time the player can see the bar some of them may be dead.
+  if (e.tag === 'duelist') world.duelPool = (world.duelPool || 0) + e.maxHull + e.maxShield;
   emit(world, { type: 'enemySpawn', x: e.x, y: e.y, cls: def.cls });
   return e;
 }
@@ -792,7 +841,18 @@ function updateEnemies(world, dt) {
   for (const e of world.enemies) {
     if (e.dead) continue;
 
+    tickEnemyStates(world, e, dt);
+    if (e.abilities.length) tickAbilities(world, e, dt);
+
     (MOVEMENTS[e.move] || MOVEMENTS.straight)(e, world, dt);
+    if (e.rootTimer > 0) { e.vx = 0; e.vy = 0; }
+    if (e.lungeTimer > 0) {
+      // A lunge overrides the brain outright. Half the point of a charge is
+      // that the ship stops doing the readable thing it was doing.
+      const a = Math.atan2(world.player.y - e.y, world.player.x - e.x);
+      e.vx = Math.cos(a) * e.baseSpeed * e.lungeMul;
+      e.vy = Math.sin(a) * e.baseSpeed * e.lungeMul;
+    }
     e.x += e.vx * dt;
     e.y += e.vy * dt;
     e.hitFlash = Math.max(0, e.hitFlash - dt * 5);
@@ -802,7 +862,18 @@ function updateEnemies(world, dt) {
     if (e.y > world.h - 14 && e.vy > 0) { e.y = world.h - 14; e.vy = -Math.abs(e.vy) * 0.6; }
 
     if (e.shieldTimer > 0) e.shieldTimer -= dt;
-    else if (e.shield < e.maxShield) e.shield = Math.min(e.maxShield, e.shield + e.maxShield * 0.06 * dt);
+    else if (e.shield < e.maxShield) {
+      // A named opponent's screens fail as the fight drags on.
+      //
+      // Six per cent a second refills a duelist's whole screen in sixteen,
+      // and against intermittent fire — a charge weapon, a beam with gaps in
+      // it — that is a fight which never converges: thirteen of six hundred
+      // ran to the three-minute cap with the ship still above a third. A
+      // long fight is supposed to be going somewhere. This makes attrition
+      // eventually favour the player, which is what attrition is for.
+      const rate = e.named ? Math.max(0, 0.06 - world.time * 0.001) : 0.06;
+      e.shield = Math.min(e.maxShield, e.shield + e.maxShield * rate * dt);
+    }
 
     if (e.cloak) {
       e.cloak.t += dt;
@@ -828,7 +899,7 @@ function updateEnemies(world, dt) {
     // Fire — announced first. `windup` counts down in view of the player, who
     // gets that long to be somewhere else. Without it a fast bullet is not a
     // dodging game, it is an unfair one.
-    if (e.fireRate > 0 && !(e.cloak && e.cloak.hidden)) {
+    if (e.fireRate > 0 && !e.casting && !(e.cloak && e.cloak.hidden)) {
       const inRange = e.x < world.w + 30 && e.x > -40;
       if (e.windup > 0) {
         e.windup -= dt;
@@ -845,9 +916,12 @@ function updateEnemies(world, dt) {
       } else {
         e.fireTimer -= dt;
         if (e.fireTimer <= 0 && inRange) {
-          e.fireTimer = 1 / e.fireRate;
-          e.windup = ENEMY_TUNING.windup;
-          e.windupFor = ENEMY_TUNING.windup;
+          e.fireTimer = 1 / (e.fireRate * (e.fireRateMul || 1));
+          // A lone opponent's tell is the only one on screen, so it can afford
+          // to be longer and clearer than a crowd's.
+          const tell = e.named ? DUEL_TUNING.windup : ENEMY_TUNING.windup;
+          e.windup = tell;
+          e.windupFor = tell;
           emit(world, { type: 'enemyAim', x: e.x, y: e.y });
         }
       }
@@ -868,7 +942,7 @@ function updateEnemies(world, dt) {
     // ended in three seconds with nothing killed, because the reaper flew out
     // of the left edge and the objective saw no boss alive. Anything the
     // objective is watching gets turned around instead.
-    if (e.isBoss || e.tag) {
+    if (e.isBoss || e.tag || e.named) {
       // Contained on BOTH sides. Clamping only the left let capital ships
       // drift away to the right instead — one was found at x=66961 on a field
       // a thousand wide — where nothing could reach it and the encounter could
@@ -918,6 +992,305 @@ function updateEnemies(world, dt) {
       e.escaped = true;
       world.stats.escaped++;
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Named opponents: states and abilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Count down every transient state an ability can apply.
+ *
+ * They are all timers rather than flags because every one of them has to end.
+ * A duel is a conversation of windows — it phases out, you wait; it reflects,
+ * you stop shooting; it roots itself, you get behind it — and a state with no
+ * expiry turns one of those windows into a wall.
+ */
+function tickEnemyStates(world, e, dt) {
+  if (e.invulnTimer > 0) e.invulnTimer = Math.max(0, e.invulnTimer - dt);
+  if (e.reflectTimer > 0) e.reflectTimer = Math.max(0, e.reflectTimer - dt);
+  if (e.rootTimer > 0) e.rootTimer = Math.max(0, e.rootTimer - dt);
+  if (e.lungeTimer > 0) e.lungeTimer = Math.max(0, e.lungeTimer - dt);
+  if (e.armourBonusTimer > 0) {
+    e.armourBonusTimer -= dt;
+    if (e.armourBonusTimer <= 0) e.armourBonus = 0;
+  }
+  if (e.speedMulTimer > 0) {
+    e.speedMulTimer -= dt;
+    if (e.speedMulTimer <= 0) e.speedMul = 1;
+  }
+  if (e.fireRateMulTimer > 0) {
+    e.fireRateMulTimer -= dt;
+    if (e.fireRateMulTimer <= 0) e.fireRateMul = 1;
+  }
+  e.speed = e.baseSpeed * (e.speedMul || 1);
+}
+
+/** Resolve an archetype's ability ids into live cooldown slots. */
+function buildEnemyAbilities(def) {
+  const out = [];
+  for (const id of def.duel?.abilities || []) {
+    const ab = DUEL_ABILITIES[id];
+    if (!ab || ab.passive) continue;
+    out.push({
+      def: ab,
+      // Staggered by their own cooldown so a ship with four moves does not
+      // open the fight by trying all four in the first second.
+      timer: ab.cooldown * (0.35 + 0.2 * out.length),
+      uses: ab.charges ?? Infinity,
+      casting: 0,
+      castFor: 0,
+    });
+  }
+  return out;
+}
+
+function abilityAllowed(world, e, ab) {
+  const when = ab.when;
+  if (!when) return true;
+  const frac = e.maxHull > 0 ? e.hull / e.maxHull : 1;
+  if (when.belowHull != null && frac > when.belowHull) return false;
+  if (when.aboveHull != null && frac < when.aboveHull) return false;
+  if (when.minDist != null || when.maxDist != null) {
+    const d = Math.hypot(world.player.x - e.x, world.player.y - e.y);
+    if (when.minDist != null && d < when.minDist) return false;
+    if (when.maxDist != null && d > when.maxDist) return false;
+  }
+  return true;
+}
+
+/**
+ * Drive one opponent's special moves.
+ *
+ * Strictly one at a time, with a floor between them. Two abilities landing
+ * together is not twice the fight, it is an unreadable second in which the
+ * player cannot tell which of the two killed them — and with a hundred ships
+ * written by different hands, two cooldowns lining up is a certainty rather
+ * than a risk.
+ */
+function tickAbilities(world, e, dt) {
+  e.abilityLock = Math.max(0, e.abilityLock - dt);
+
+  for (const slot of e.abilities) {
+    if (slot.casting > 0) {
+      slot.casting -= dt;
+      if (slot.casting <= 0) {
+        slot.casting = 0;
+        e.casting = null;
+        e.abilityLock = DUEL_TUNING.abilityGap;
+        castAbility(world, e, slot);
+      }
+      return;
+    }
+    if (slot.timer > 0) slot.timer = Math.max(0, slot.timer - dt);
+  }
+
+  if (e.abilityLock > 0 || (e.cloak && e.cloak.hidden)) return;
+
+  for (const slot of e.abilities) {
+    if (slot.timer > 0 || slot.uses <= 0) continue;
+    if (!abilityAllowed(world, e, slot.def)) continue;
+    slot.timer = slot.def.cooldown;
+    slot.uses--;
+    slot.casting = Math.max(0.35, slot.def.windup ?? 0.8);
+    slot.castFor = slot.casting;
+    e.casting = slot;
+    // The ordinary gun tell is cancelled: two overlapping wind-ups on the same
+    // hull is exactly the unreadable moment this system exists to prevent.
+    e.windup = 0;
+    e.windupFor = 0;
+    emit(world, {
+      type: 'abilityCharge', id: slot.def.id, name: slot.def.name,
+      x: e.x, y: e.y, time: slot.casting,
+    });
+    return;
+  }
+}
+
+function castAbility(world, e, slot) {
+  emit(world, { type: 'abilityCast', id: slot.def.id, name: slot.def.name, x: e.x, y: e.y });
+  try {
+    slot.def.use(makeAbilityApi(world, e));
+  } catch (err) {
+    // One malformed ability out of thirty-two must not end the run. It is
+    // still a bug, and the test suite casts every one of them for that reason.
+    emit(world, { type: 'abilityFailed', id: slot.def.id });
+  }
+}
+
+/**
+ * The only surface an ability may touch the world through.
+ *
+ * Deliberately narrow. Abilities are authored against this table and nothing
+ * else, which is what keeps thirty-two of them from each inventing their own
+ * way to spawn a bullet — and what lets the test suite cast all of them
+ * against a stub and know it has covered them.
+ */
+function makeAbilityApi(world, e) {
+  const p = world.player;
+  const emitSpecs = (specs) => {
+    for (const spec of specs || []) {
+      if (spec.zone) spawnZone(world, e, spec);
+      else if (spec.beam) spawnBeam(world, e, spec);
+      else spawnEnemyBullet(world, e, spec);
+    }
+  };
+
+  return {
+    e, world, player: p,
+    rng: () => world.rng.next(),
+    threat: world.threat,
+    // Priced below an ordinary shot, and split between however many moves
+    // this ship has, so a four-move opponent is not four times the damage.
+    // See balance.js.
+    dmg: e.bulletDamage * DUEL_TUNING.abilityDamageScale
+      * (2 / (1 + Math.max(1, e.abilities.length))),
+
+    aim: () => Math.atan2(p.y - e.y, p.x - e.x),
+    dist: () => Math.hypot(p.x - e.x, p.y - e.y),
+
+    shoot: (specs) => emitSpecs(Array.isArray(specs) ? specs : [specs]),
+    pattern: (id) => emitSpecs((FIRE_PATTERNS[id] || FIRE_PATTERNS.none)(e, world)),
+    beam: (o = {}) => spawnBeam(world, e, {
+      angle: o.angle ?? Math.atan2(p.y - e.y, p.x - e.x),
+      beam: {
+        telegraph: Math.max(0.5, o.telegraph ?? 1.1),
+        width: o.width ?? 26, damage: o.damage ?? 3,
+        length: o.length ?? 1300, linger: o.linger ?? 0.35,
+        track: o.track !== false, anchored: o.anchored,
+      },
+    }),
+    zone: (o = {}) => spawnZone(world, e, {
+      x: o.x ?? e.x, y: o.y ?? e.y,
+      zone: {
+        r: o.r ?? 90, maxR: o.maxR ?? null, growth: o.growth ?? 0,
+        // Divided by the same ratio spawnZone is about to multiply back in.
+        // An ability states its damage in absolute terms like every other
+        // call here does; without this it would be scaled by threat twice
+        // and a poison cloud would out-damage the ship that laid it.
+        dps: (o.dps ?? 14) / zoneRatio(e),
+        life: o.life ?? 5.5, arm: Math.max(0.4, o.arm ?? 0.8),
+        kind: o.kind || 'burn', vx: o.vx ?? 0, vy: o.vy ?? 0, anchored: o.anchored,
+      },
+    }),
+    mine: (o = {}) => spawnEnemyBullet(world, e, {
+      x: o.x ?? e.x, y: o.y ?? e.y, angle: Math.PI, speed: o.speed ?? 20,
+      mine: true, sprite: 'sw_mine', life: o.life ?? 12,
+      damage: o.damage ?? e.bulletDamage * 1.6,
+      radius: o.radius ?? 70, proximity: o.proximity ?? 54,
+    }),
+
+    summon: (id, count = 1, o = {}) => {
+      for (let i = 0; i < count; i++) {
+        world.pendingSpawns.push({
+          def: scaleFromParent(e, id, world),
+          x: e.x + (o.dx ?? 0), y: e.y + (i - (count - 1) / 2) * 26,
+          timer: o.delay ?? 0,
+        });
+      }
+      emit(world, { type: 'launch', x: e.x, y: e.y });
+    },
+
+    heal: (frac) => {
+      const want = e.maxHull * Math.min(0.15, Math.max(0, frac));
+      const give = Math.min(want, e.healBudget);
+      if (give <= 0) return;
+      e.healBudget -= give;
+      e.hull = Math.min(e.maxHull, e.hull + give);
+      emit(world, { type: 'enemyHeal', x: e.x, y: e.y, amount: give });
+    },
+    restoreShield: (frac) => {
+      // Draws on the same allowance as mending hull. Capping them separately
+      // just moves the problem to whichever is left uncapped, which is the
+      // mistake the player's own healing made first.
+      const want = e.maxShield * Math.max(0, frac);
+      const give = Math.min(want, e.healBudget);
+      if (give <= 0) return;
+      e.healBudget -= give;
+      e.shield = Math.min(e.maxShield, e.shield + give);
+      e.shieldTimer = 0;
+      emit(world, { type: 'shieldRestored', x: e.x, y: e.y, enemy: true });
+    },
+
+    invuln: (sec) => { e.invulnTimer = Math.max(e.invulnTimer, Math.min(2.5, sec)); },
+    reflect: (sec) => { e.reflectTimer = Math.max(e.reflectTimer, Math.min(3, sec)); },
+    armour: (bonus, sec) => {
+      e.armourBonus = Math.min(0.6, Math.max(0, bonus));
+      e.armourBonusTimer = Math.max(e.armourBonusTimer, sec);
+    },
+    speed: (mult, sec) => {
+      e.speedMul = Math.max(0.2, Math.min(3, mult));
+      e.speedMulTimer = Math.max(e.speedMulTimer, sec);
+    },
+    fireRate: (mult, sec) => {
+      e.fireRateMul = Math.max(0.2, Math.min(4, mult));
+      e.fireRateMulTimer = Math.max(e.fireRateMulTimer, sec);
+    },
+    root: (sec) => { e.rootTimer = Math.max(e.rootTimer, sec); },
+    lunge: (mult, sec) => {
+      e.lungeMul = Math.max(1, Math.min(5, mult));
+      e.lungeTimer = Math.max(e.lungeTimer, Math.min(2.2, sec));
+    },
+    blink: (x, y) => {
+      e.x = clamp(x, world.w * 0.18, world.w * 0.94);
+      e.y = clamp(y, 34, world.h - 34);
+      emit(world, { type: 'blink', x: e.x, y: e.y });
+    },
+
+    pull: (force, radius, sec) => {
+      world.pulls.push({
+        x: e.x, y: e.y, force, radius: radius || 240,
+        life: sec || 3, owner: e, dead: false,
+      });
+      emit(world, { type: 'snare', x: e.x, y: e.y, radius: radius || 240 });
+    },
+    clearShots: (radius) => {
+      let n = 0;
+      for (const b of world.bullets) {
+        if (!b.dead && dist2(b.x, b.y, e.x, e.y) < radius * radius) { b.dead = true; n++; }
+      }
+      emit(world, { type: 'shotsCleared', x: e.x, y: e.y, radius, count: n });
+    },
+    decoy: (count = 2) => {
+      // Copies with a hundredth of the hull and no guns. They are a targeting
+      // problem, not a damage one — and they are deliberately NOT tagged, so
+      // shooting them is never required to finish the fight.
+      for (let i = 0; i < count; i++) {
+        world.pendingSpawns.push({
+          def: {
+            ...e.def, id: `${e.def.id}_echo`, name: `${e.name} (echo)`,
+            hull: Math.max(1, Math.round(e.maxHull * 0.06)), shield: 0,
+            fire: 'none', fireRate: 0, contact: 0, xp: 0, credits: 0,
+            duel: null, named: false, armour: 0,
+          },
+          x: e.x + world.rng.float(-70, 70),
+          y: clamp(e.y + world.rng.float(-110, 110), 40, world.h - 40),
+          timer: 0,
+        });
+      }
+      emit(world, { type: 'decoySplit', x: e.x, y: e.y, count });
+    },
+    drainEnergy: (amount) => {
+      p.energy = Math.max(0, p.energy - amount);
+      emit(world, { type: 'energyDrained', x: p.x, y: p.y, amount });
+    },
+
+    emit: (ev) => emit(world, { x: e.x, y: e.y, ...ev }),
+  };
+}
+
+/** The threat scaling spawnZone applies of its own accord. */
+function zoneRatio(e) {
+  return (e.bulletDamage / Math.max(1, e.def.bulletDamage || 1)) || 1;
+}
+
+/** Gravity wells expire; they do not follow the ship that laid them. */
+function updatePulls(world, dt) {
+  for (const g of world.pulls) {
+    if (g.dead) continue;
+    g.life -= dt;
+    if (g.life <= 0) g.dead = true;
   }
 }
 
@@ -1427,6 +1800,21 @@ function resolveCollisions(world, dt) {
 
 function hitEnemyWithBullet(world, b, e) {
   world.stats.shotsHit++;
+
+  // A reflecting hull turns your own shot round. This is the one attack in the
+  // game the player creates themselves, which is the point: the counter is to
+  // stop firing and look, not to dodge faster.
+  if (e.reflectTimer > 0) {
+    spawnEnemyBullet(world, e, {
+      x: b.x, y: b.y,
+      angle: Math.atan2(world.player.y - b.y, world.player.x - b.x),
+      speed: 240, damage: b.damage * 0.55, sprite: 'eb_needle', life: 3,
+    });
+    emit(world, { type: 'reflected', x: b.x, y: b.y });
+    b.dead = true;
+    return;
+  }
+
   const mult = e.shield > 0 ? (b.shieldMult || 1) : 1;
   damageEnemy(world, e, b.damage * mult, { weapon: b, crit: b.crit });
 
@@ -1492,9 +1880,20 @@ export function explode(world, x, y, { radius, damage, friendly, except = null }
 export function damageEnemy(world, e, amount, opts = {}) {
   if (e.dead || amount <= 0) return 0;
 
+  // Phased out: the hit does not land at all. Bounded to 2.5s by the api so
+  // this is always a window to wait through rather than a wall.
+  if (e.invulnTimer > 0) {
+    emit(world, { type: 'immune', x: e.x, y: e.y });
+    return 0;
+  }
+
   // An aura from a nearby support ship soaks a fraction before anything else.
   let dmg = amount * (1 - (e.shieldAura || 0));
-  dmg *= (1 - (e.armour || 0));
+  // Armour and a hardlight screen stacked to 0.83 on one hull, which is a
+  // six-fold damage reduction and turned three of the hundred into fights
+  // that ran to the three-minute cap. A ceiling well under that keeps a
+  // defensive window a window.
+  dmg *= (1 - clamp((e.armour || 0) + (e.armourBonus || 0), 0, DUEL_TUNING.armourCeiling));
 
   if (e.shield > 0) {
     const absorbed = Math.min(e.shield, dmg);
@@ -1585,7 +1984,9 @@ export function damagePlayer(world, amount, opts = {}) {
     return 0;
   }
 
-  let dmg = amount;
+  // See balance.js: a ceiling on any one blow, so a fight is lost over a
+  // stretch rather than in a frame.
+  let dmg = Math.min(amount, p.maxHull * DEFENCE_TUNING.maxHitFraction);
   if (p.shield > 0) {
     // A shield stops most of a hit, never all of it. Full absorption made
     // every non-lethal fight free — 80% of them cost no hull at all — so
@@ -1609,12 +2010,12 @@ export function damagePlayer(world, amount, opts = {}) {
       emit(world, { type: 'playerDestroyed', x: p.x, y: p.y });
     }
   }
-  world.stats.damageTaken += amount;
+  world.stats.damageTaken += dmg;
   // Which kind of mistake cost the player this hull? Bullets are a dodging
   // problem, collisions are a spacing one, and they want opposite fixes.
   const src = opts.source || 'bullet';
-  world.stats.bySource[src] = (world.stats.bySource[src] || 0) + amount;
-  return amount;
+  world.stats.bySource[src] = (world.stats.bySource[src] || 0) + dmg;
+  return dmg;
 }
 
 /**
@@ -1734,7 +2135,7 @@ export function retreat(world) {
 // ---------------------------------------------------------------------------
 
 function compact(world) {
-  for (const key of ['enemies', 'bullets', 'eBullets', 'obstacles', 'pickups', 'drones', 'decoys', 'effects', 'zones', 'beams', 'mines']) {
+  for (const key of ['enemies', 'bullets', 'eBullets', 'obstacles', 'pickups', 'drones', 'decoys', 'effects', 'zones', 'beams', 'mines', 'pulls']) {
     const arr = world[key];
     if (arr.some(x => x.dead)) world[key] = arr.filter(x => !x.dead);
   }

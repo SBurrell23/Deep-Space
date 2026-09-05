@@ -402,11 +402,12 @@ export const HAZARD_ENCOUNTERS = [
   {
     // Idea: the first time something follows you. Seekers do not shoot and do
     // not stop, and there are always more behind the ones you killed.
-    id: 'run_the_picket', name: 'Run the Picket', type: 'hostiles', weight: 11,
+    id: 'run_the_picket', name: 'Run the Picket', type: 'asteroid', weight: 11,
     minThreat: 1, maxThreat: 5,
     blurb: 'Seeker pods have your track. Stay ahead of them for forty-five seconds.',
     intro: 'They do not shoot. They only need to touch you once.',
     objective: { kind: 'clear' },
+    obstacles: { count: 16, speed: 74, size: 40, toughness: 2.6, contact: 22, spreadX: 4.4 },
     arena: { scroll: 190 },
     waves: [
       { at: 0, spawn: [{ id: 'seeker', count: 3, formation: 'line', delay: 0.4 }] },
@@ -421,11 +422,12 @@ export const HAZARD_ENCOUNTERS = [
   {
     // Idea: a swarm that is slightly faster than you are. Killing them is
     // possible and it is not the plan; the clock is the plan.
-    id: 'outrun_the_swarm', name: 'Outrun the Swarm', type: 'hostiles', weight: 10,
+    id: 'outrun_the_swarm', name: 'Outrun the Swarm', type: 'asteroid', weight: 10,
     minThreat: 3, maxThreat: 9,
     blurb: 'A swarm with a better top speed than yours. Fifty-five seconds of it.',
     intro: 'You cannot kill them all. You have counted. Fly.',
     objective: { kind: 'clear' },
+    obstacles: { count: 22, speed: 118, size: 24, toughness: 1, contact: 14, spreadX: 5 },
     arena: { scroll: 215 },
     waves: [
       { at: 0, spawn: [{ budget: 0.5, pool: ['zealot', 'interceptor'], formation: 'arc', delay: 0.2 }] },
@@ -440,11 +442,12 @@ export const HAZARD_ENCOUNTERS = [
   {
     // Idea: hunter-killers orbit rather than close, so you are never allowed a
     // clean line on them and never allowed to stand still either.
-    id: 'hounds', name: 'Hounds', type: 'hostiles', weight: 10,
+    id: 'hounds', name: 'Hounds', type: 'asteroid', weight: 10,
     minThreat: 6, maxThreat: 12,
     blurb: 'Hunter-killers circling. They will not close and they will not leave.',
     intro: 'They keep their distance and their needles are faster than you are.',
     objective: { kind: 'clear' },
+    obstacles: { count: 16, speed: 74, size: 40, toughness: 2.6, contact: 22, spreadX: 4.4 },
     arena: { scroll: 225 },
     waves: [
       { at: 0, spawn: [{ id: 'hunter', count: 1, formation: 'column' }] },
@@ -459,11 +462,12 @@ export const HAZARD_ENCOUNTERS = [
   {
     // Idea: the inversion. You are the one chasing, the target is running, and
     // it drops escorts behind it the whole way. Miss the window and it is gone.
-    id: 'courier_run', name: 'Courier Run', type: 'hostiles', weight: 9,
+    id: 'courier_run', name: 'Courier Run', type: 'asteroid', weight: 9,
     minThreat: 8, maxThreat: 15,
     blurb: 'A tender running for a jump point. Kill it before it gets there.',
     intro: 'It will not fight you. It only has to stay ahead of you for ninety seconds.',
     objective: { kind: 'clear' },
+    obstacles: { count: 16, speed: 74, size: 40, toughness: 2.6, contact: 22, spreadX: 4.4 },
     arena: { scroll: 240 },
     waves: [
       { at: 0, spawn: [{ id: 'drone_carrier', count: 1, formation: 'column', tag: 'courier', elite: true }] },
@@ -479,11 +483,12 @@ export const HAZARD_ENCOUNTERS = [
     // Idea: you cannot kill the thing behind you, only outlast it. The Reaper
     // is priced far above the node budget on purpose — shooting it is a losing
     // trade and the clock is the only exit.
-    id: 'reaper_on_your_tail', name: 'Reaper on Your Tail', type: 'hostiles', weight: 8,
+    id: 'reaper_on_your_tail', name: 'Reaper on Your Tail', type: 'asteroid', weight: 8,
     minThreat: 13, maxThreat: 20,
     blurb: 'A Reaper has your scent. Seventy seconds. You will not win the trade.',
     intro: 'It is faster than you, it rams, and it does not lose interest. Fly for seventy seconds.',
     objective: { kind: 'clear' },
+    obstacles: { count: 26, speed: 104, size: 24, toughness: 1.2, contact: 15, spreadX: 5.4 },
     arena: { scroll: 250 },
     waves: [
       { at: 0, spawn: [{ id: 'reaper', count: 1, formation: 'column' }] },

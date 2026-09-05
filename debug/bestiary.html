@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deep Space — Duelist Bestiary</title>
+<style>
+  :root {
+    --bg: #05070f; --panel: #0b1020; --line: #1c2740;
+    --ink: #cfdcf2; --dim: #7186a8; --hot: #ff8f6b; --cool: #4fe3f5;
+    --gold: #ffcc5c; --green: #5cf59b; --red: #ff5c72;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  header {
+    position: sticky; top: 0; z-index: 5; padding: 14px 20px 12px;
+    background: linear-gradient(#05070fee, #05070fdd);
+    border-bottom: 1px solid var(--line); backdrop-filter: blur(6px);
+  }
+  h1 { margin: 0 0 2px; font-size: 17px; letter-spacing: .16em; color: var(--cool); }
+  .sub { color: var(--dim); font-size: 11px; margin-bottom: 10px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .filters input {
+    background: #0e1526; border: 1px solid var(--line); color: var(--ink);
+    padding: 5px 9px; border-radius: 3px; font: inherit; width: 190px;
+  }
+  button {
+    background: #0e1526; border: 1px solid var(--line); color: var(--dim);
+    padding: 5px 10px; border-radius: 3px; font: inherit; cursor: pointer;
+  }
+  button:hover { color: var(--ink); border-color: #3a4a70; }
+  button.on { background: #16233f; color: var(--cool); border-color: #2f5f8f; }
+  .grid {
+    display: grid; gap: 12px; padding: 16px 20px 60px;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+    padding: 12px; display: grid; gap: 9px;
+  }
+  .head { display: flex; gap: 12px; align-items: flex-start; }
+  canvas { image-rendering: pixelated; background: #04060c; border: 1px solid var(--line); border-radius: 3px; flex: none; }
+  .title { flex: 1; min-width: 0; }
+  .name { font-size: 15px; color: var(--gold); letter-spacing: .04em; }
+  .who { color: var(--dim); font-size: 11px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .tag {
+    font-size: 10px; padding: 1px 6px; border-radius: 2px;
+    background: #16233f; color: var(--dim); border: 1px solid var(--line);
+  }
+  .tag.band-low { color: var(--green); } .tag.band-mid { color: var(--cool); }
+  .tag.band-high { color: var(--red); }  .tag.band-any { color: var(--gold); }
+  .tag.sq { color: var(--hot); }
+  .blurb { color: var(--dim); font-style: italic; font-size: 12px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 8px; font-size: 11px; }
+  .stats div { display: flex; justify-content: space-between; gap: 6px; border-bottom: 1px dotted #16223a; }
+  .stats span:first-child { color: var(--dim); }
+  .bar { height: 5px; background: #101a2e; border-radius: 2px; overflow: hidden; display: flex; }
+  .bar i { display: block; height: 100%; }
+  .sect { color: var(--dim); font-size: 10px; letter-spacing: .16em; border-top: 1px solid var(--line); padding-top: 7px; }
+  .ability { margin-bottom: 6px; }
+  .ab-name { color: var(--cool); font-size: 12px; }
+  .ab-meta { color: var(--dim); font-size: 10px; }
+  .ab-desc { font-size: 11px; }
+  .ab-tell { font-size: 11px; color: var(--hot); }
+  .strategy { font-size: 12px; border-left: 2px solid var(--green); padding-left: 8px; color: #d8ffe4; }
+  .intro { font-size: 11px; color: #9fb0cd; }
+  .count { color: var(--dim); font-size: 11px; margin-left: auto; }
+  .parts { font-size: 10px; color: #4d5f80; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DUELIST BESTIARY</h1>
+  <div class="sub">Every named opponent a Hostiles node can put in front of you. Live from the game modules — this page is never out of date.</div>
+  <div class="filters" id="filters">
+    <input id="q" placeholder="search name, ability, text…" autocomplete="off">
+    <span class="count" id="count"></span>
+  </div>
+</header>
+<div class="grid" id="grid">Loading…</div>
+
+<script type="module">
+import { DUELISTS } from '../src/game/duelists/index.js';
+import { DUEL_ABILITIES } from '../src/game/duel-abilities.js';
+import { DUEL_MOVEMENTS } from '../src/game/duel-ai.js';
+import { composeSprite } from '../src/ui/art-compose.js';
+import { DUEL_TUNING } from '../src/game/balance.js';
+
+const SCALE = 3;
+const grid = document.getElementById('grid');
+const q = document.getElementById('q');
+const countEl = document.getElementById('count');
+
+/** What each brain actually does, for the one line the card shows. */
+const BRAIN_NOTE = Object.fromEntries(Object.keys(DUEL_MOVEMENTS).map(id => [id, id.replace('duel_', '')]));
+
+function sprite(d) {
+  const def = composeSprite(d.duel.art);
+  const cv = document.createElement('canvas');
+  cv.width = 64 * SCALE; cv.height = 40 * SCALE;
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  for (let y = 0; y < def.rows.length; y++) {
+    const row = def.rows[y];
+    for (let x = 0; x < row.length; x++) {
+      const ch = row[x];
+      if (ch === '.' || ch === ' ') continue;
+      ctx.fillStyle = def.pal[ch];
+      ctx.fillRect(x * SCALE, y * SCALE, SCALE, SCALE);
+    }
+  }
+  return cv;
+}
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+
+function card(d) {
+  const u = d.duel;
+  const c = el('div', 'card');
+
+  const head = el('div', 'head');
+  head.append(sprite(d));
+  const title = el('div', 'title');
+  title.append(el('div', 'name', d.name));
+  title.append(el('div', 'who', `${u.faction} · ${u.role} · threat ${u.minThreat}–${u.maxThreat}`));
+  const tags = el('div', 'tags');
+  tags.append(el('span', `tag band-${u.band}`, u.band));
+  tags.append(el('span', 'tag sq', u.squadron === 1 ? 'single ship' : `${u.squadron} bodies`));
+  tags.append(el('span', 'tag', BRAIN_NOTE[d.move]));
+  tags.append(el('span', 'tag', d.fire));
+  title.append(tags);
+  head.append(title);
+  c.append(head);
+
+  c.append(el('div', 'blurb', `“${u.blurb}”`));
+
+  // Hull / shield as one bar, because to the player they are one pool.
+  const bar = el('div', 'bar');
+  const hullPct = (d.hull * u.squadron) / u.pool * 100;
+  const shPct = (d.shield * u.squadron) / u.pool * 100;
+  const h = el('i'); h.style.width = `${hullPct}%`; h.style.background = '#5cf59b';
+  const s = el('i'); s.style.width = `${shPct}%`; s.style.background = '#4fe3f5';
+  bar.append(h, s);
+  c.append(bar);
+
+  const stats = el('div', 'stats');
+  const stat = (k, v) => {
+    const r = el('div');
+    r.append(el('span', null, k), el('span', null, String(v)));
+    stats.append(r);
+  };
+  stat('hull', d.hull);
+  stat('shield', d.shield);
+  stat('armour', d.armour.toFixed(2));
+  stat('speed', d.speed);
+  stat('dmg', d.bulletDamage.toFixed(1));
+  stat('rate', `${d.fireRate}/s`);
+  stat('shot spd', d.bulletSpeed);
+  stat('ram', d.contact);
+  stat('xp', d.xp);
+  stat('credits', d.credits);
+  stat('pool', u.pool);
+  stat('bodies', u.squadron);
+  c.append(stats);
+
+  c.append(el('div', 'sect', 'ABILITIES'));
+  const abs = el('div');
+  for (const id of u.abilities) {
+    const a = DUEL_ABILITIES[id];
+    const w = el('div', 'ability');
+    w.append(el('div', 'ab-name', a.name));
+    w.append(el('div', 'ab-meta', `${a.cooldown}s cooldown · ${a.windup}s wind-up`
+      + (Number.isFinite(a.charges) ? ` · ${a.charges} uses` : '')
+      + (a.when ? ` · ${Object.entries(a.when).map(([k, v]) => `${k} ${v}`).join(', ')}` : '')
+      + ` · ${a.tags.join('/')}`));
+    w.append(el('div', 'ab-desc', a.desc));
+    w.append(el('div', 'ab-tell', `Tell: ${a.tell}`));
+    abs.append(w);
+  }
+  c.append(abs);
+
+  c.append(el('div', 'sect', 'HOW TO BEAT IT'));
+  c.append(el('div', 'strategy', u.strategy));
+  c.append(el('div', 'intro', u.intro));
+  c.append(el('div', 'parts',
+    `${u.art.pal} · ${u.art.core}/${u.art.nose}/${u.art.wing}/${u.art.pod}/${u.art.engine}/${u.art.crest} · ${d.id}`));
+  return c;
+}
+
+// --- filters ---------------------------------------------------------------
+const facets = [
+  ['band', ['low', 'mid', 'high', 'any'], d => d.duel.band],
+  ['bodies', ['1', '2', '3', '4', '5'], d => String(d.duel.squadron)],
+  ['faction', [...new Set(DUELISTS.map(d => d.duel.faction))].sort(), d => d.duel.faction],
+  ['role', [...new Set(DUELISTS.map(d => d.duel.role))].sort(), d => d.duel.role],
+];
+const active = {};
+const bar = document.getElementById('filters');
+for (const [key, values, get] of facets) {
+  const group = el('span', null, '');
+  group.style.marginRight = '10px';
+  for (const v of values) {
+    const b = el('button', null, v);
+    b.onclick = () => {
+      active[key] = active[key] === v ? null : v;
+      for (const sib of group.children) sib.classList.toggle('on', sib.textContent === active[key]);
+      render();
+    };
+    group.append(b);
+  }
+  bar.insertBefore(group, countEl);
+}
+
+function matches(d) {
+  for (const [key, , get] of facets) {
+    if (active[key] && get(d) !== active[key]) return false;
+  }
+  const term = q.value.trim().toLowerCase();
+  if (!term) return true;
+  const hay = [d.id, d.name, d.duel.faction, d.duel.role, d.move, d.fire,
+    d.duel.strategy, d.duel.blurb, d.duel.intro, ...d.duel.abilities].join(' ').toLowerCase();
+  return hay.includes(term);
+}
+
+function render() {
+  const shown = DUELISTS.filter(matches);
+  grid.replaceChildren(...shown.map(card));
+  countEl.textContent = `${shown.length} of ${DUELISTS.length}  ·  pool base ${DUEL_TUNING.hullBase}`;
+}
+q.oninput = render;
+render();
+</script>
+</body>
+</html>

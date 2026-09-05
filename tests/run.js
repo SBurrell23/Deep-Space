@@ -20,6 +20,7 @@ const SUITES = [
   './game.test.js',
   './sim.test.js',
   './encounters.test.js',
+  './duelists.test.js',
   './save.test.js',
   './integration.test.js',
 ];

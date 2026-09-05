@@ -25,6 +25,11 @@ import { checkAchievements } from './game/achievements.js';
 import './ui/art-crew.js';
 import './ui/art-ships.js';
 import './ui/art-shmup.js';
+// The duelists' hulls are assembled from parts rather than drawn whole, so
+// they have to be composed before anything tries to draw one.
+import { registerDuelistArt } from './ui/art-compose.js';
+import { DUELISTS } from './game/duelists/index.js';
+registerDuelistArt(DUELISTS);
 
 const state = {
   profile: null,

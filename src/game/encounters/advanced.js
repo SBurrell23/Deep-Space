@@ -12,11 +12,12 @@
 
 export const ADVANCED_ENCOUNTERS = [
   {
-    id: 'censer_choir', name: 'Censer Choir', type: 'hostiles', weight: 11,
+    id: 'censer_choir', name: 'Censer Choir', type: 'asteroid', weight: 11,
     minThreat: 7, maxThreat: 16,
     blurb: 'Three ships that will not let you close.',
     intro: 'They hold a loose triangle and burn the space between them. There is a way through it; there is not a way over it.',
     objective: { kind: 'clear' },
+    obstacles: { count: 40, speed: 140, size: 16, toughness: 0.8, contact: 11, spreadX: 6.5 },
     waves: [
       { at: 0, spawn: [{ id: 'censer', count: 3, formation: 'arc', delay: 0.5 }] },
       // The artillery is the actual threat. The censers just decide where you
@@ -28,11 +29,12 @@ export const ADVANCED_ENCOUNTERS = [
   },
 
   {
-    id: 'ashfall', name: 'Ashfall', type: 'hostiles', weight: 10,
+    id: 'ashfall', name: 'Ashfall', type: 'asteroid', weight: 10,
     minThreat: 8, maxThreat: 18,
     blurb: 'They set the sky on fire behind you as you move.',
     intro: 'Pyres do not aim at you. They aim at where you were going.',
     objective: { kind: 'clear' },
+    obstacles: { count: 34, speed: 96, size: 32, toughness: 1.5, contact: 17, spreadX: 6 },
     waves: [
       { at: 0, spawn: [{ id: 'pyre', count: 2, formation: 'echelon', delay: 0.5 }] },
       { at: 14, spawn: [{ budget: 0.6, pool: ['wasp', 'interceptor'], formation: 'pincer', delay: 0.2 }] },
@@ -42,11 +44,12 @@ export const ADVANCED_ENCOUNTERS = [
   },
 
   {
-    id: 'basilisk_watch', name: "Basilisk's Watch", type: 'hostiles', weight: 10,
+    id: 'basilisk_watch', name: "Basilisk's Watch", type: 'asteroid', weight: 10,
     minThreat: 9, maxThreat: 19,
     blurb: 'A lance that tracks you until the moment it fires.',
     intro: 'It paints the line first. Whether that is a courtesy or a taunt is unclear.',
     objective: { kind: 'clear' },
+    obstacles: { count: 22, speed: 118, size: 24, toughness: 1, contact: 14, spreadX: 5 },
     waves: [
       { at: 0, spawn: [{ id: 'basilisk', count: 2, formation: 'column', gap: 90, delay: 0.8 }] },
       // Screen ships to stop you simply parking outside the beam's arc.
@@ -71,11 +74,12 @@ export const ADVANCED_ENCOUNTERS = [
   },
 
   {
-    id: 'wall_and_hammer', name: 'Wall And Hammer', type: 'hostiles', weight: 10,
+    id: 'wall_and_hammer', name: 'Wall And Hammer', type: 'asteroid', weight: 10,
     minThreat: 10, maxThreat: 20,
     blurb: 'Walls from the front, closing walls from the edges.',
     intro: 'The gap is always there. It is rarely where you would like it to be.',
     objective: { kind: 'clear' },
+    obstacles: { count: 40, speed: 140, size: 16, toughness: 0.8, contact: 11, spreadX: 6.5 },
     waves: [
       { at: 0, spawn: [{ id: 'bulwark_prime', count: 1, formation: 'line' }] },
       { at: 8, spawn: [{ id: 'cruiser', count: 1, formation: 'line' }] },
