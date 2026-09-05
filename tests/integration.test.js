@@ -143,6 +143,57 @@ describe('run lifecycle', () => {
     assert.equal(run.map.nodes[next.id].cleared, false, 'and the node stays unclaimed');
   });
 
+  it('lets you back into an unplayed node you are parked on', () => {
+    // Two things leave the ship standing on an encounter it has not fought:
+    // a brief with no origin to be sent back to, and resuming a run that was
+    // saved the moment it arrived. The map treats a click on your own node as
+    // a no-op, so before this the node could never be entered again and read
+    // as though it had resolved itself.
+    const run = freshRun('PARKED');
+    const next = U.reachable(run.map).find(n => !n.cleared && ENCOUNTER_TYPES[n.type]?.action);
+    if (!next) return;
+
+    R.jump(run, next.id);
+    if (run.phase !== 'brief') return;
+
+    // Strand the ship: a brief with nowhere to put it back.
+    run.jumpOrigin = null;
+    R.declineEncounter(run);
+    assert.equal(run.map.currentId, next.id, 'this is the situation being tested');
+    assert.equal(run.map.nodes[next.id].cleared, false);
+
+    const res = R.reopenNode(run);
+    assert.equal(res.ok, true, 'an unplayed node you are standing on must open');
+    assert.equal(run.phase, 'brief');
+    assert.equal(run.encounter.id, next.encounterId);
+  });
+
+  it('refuses to reopen a node that has already paid out', () => {
+    const run = freshRun('PARKED2');
+    U.markCleared(run.map, run.map.currentId);
+    const res = R.reopenNode(run);
+    assert.equal(res.ok, false, 'a cleared node is travel only, forever');
+  });
+
+  it('survives a save taken at the moment of arrival', () => {
+    // A run is saved on every jump, which is BEFORE the brief is answered, and
+    // a restored run always comes back on the map. Whatever it was about to
+    // fight has to still be fightable.
+    const run = freshRun('RESUME');
+    const next = U.reachable(run.map).find(n => !n.cleared && ENCOUNTER_TYPES[n.type]?.action);
+    if (!next) return;
+    R.jump(run, next.id);
+    if (run.phase !== 'brief') return;
+
+    const back = R.deserialize(R.serialize(run));
+    assert.equal(back.phase, 'map');
+    assert.equal(back.map.currentId, next.id, 'the save was taken standing on it');
+    assert.equal(back.map.nodes[next.id].cleared, false, 'and it was never fought');
+
+    assert.equal(R.reopenNode(back).ok, true);
+    assert.equal(back.phase, 'brief');
+  });
+
   it('cancelling after a multi-hop travel returns to the start of the move', () => {
     // Built rather than played: the situation needs a corridor of cleared space
     // with an unfought node on the far side, which a short scripted run rarely

@@ -38,16 +38,23 @@ export function goBack(fallback = 'title') {
 // ---------------------------------------------------------------------------
 
 let modalDismissable = true;
+// Which modal is showing, and what to do if the player dismisses it with
+// Escape or a click on the backdrop rather than a button. Dismissing used to
+// be indistinguishable from closing, which is fine for a modal that returns
+// to the map and wrong for one opened ON TOP of another — the ship sheet over
+// a trading post has somewhere to go back to.
+let modalId = null;
+let modalOnDismiss = null;
 
 export function initModal() {
   $('#modal-root').addEventListener('click', e => {
     const action = e.target.closest('[data-action]')?.dataset.action;
-    if (action === 'modal-dismiss' && modalDismissable) closeModal();
+    if (action === 'modal-dismiss' && modalDismissable) dismissModal();
   });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && !$('#modal-root').hidden && modalDismissable) {
       e.stopPropagation();
-      closeModal();
+      dismissModal();
     }
   }, true);
 }
@@ -58,6 +65,8 @@ export function initModal() {
  */
 export function openModal(o) {
   modalDismissable = o.dismissable !== false;
+  modalId = o.id || null;
+  modalOnDismiss = o.onDismiss || null;
   $('#modal-title').textContent = o.title || '';
   const body = clear($('#modal-body'));
   if (o.body) body.append(o.body);
@@ -77,9 +86,21 @@ export function openModal(o) {
 export function closeModal() {
   show($('#modal-root'), false);
   modalDismissable = true;
+  modalId = null;
+  modalOnDismiss = null;
+}
+
+/** Close by Escape or backdrop, running whatever should happen afterwards. */
+function dismissModal() {
+  const after = modalOnDismiss;
+  closeModal();
+  if (after) after();
 }
 
 export function isModalOpen() { return !$('#modal-root').hidden; }
+
+/** Which modal is on screen, or null. Lets a key binding act on one of them. */
+export function currentModal() { return $('#modal-root').hidden ? null : modalId; }
 
 // ---------------------------------------------------------------------------
 // Toasts
@@ -309,7 +330,7 @@ export function renderHelp() {
         keyRow('Middle click', 'Heavy mount — unlocked at level 13'),
         keyRow('Space / Shift', 'Dash — you are briefly untouchable'),
         keyRow('1 / 2 / 3 · Q / E / R', 'Abilities from your utility gear'),
-        keyRow('I · Tab', 'Ship and loadout'),
+        keyRow('I · Tab', 'Ship and loadout — works at a trading post too'),
         keyRow('Esc', 'Pause')),
       p('Firing draws on your energy. Run it dry and your guns stop, so watch the bar. Dashing has invulnerability frames — it is the answer to a wall of fire you cannot fly around.')),
 

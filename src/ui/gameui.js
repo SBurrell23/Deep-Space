@@ -11,7 +11,7 @@
  */
 
 import { $, $$, el, append, clear, show, tooltip, tipContent, hideTooltip } from './dom.js';
-import { openModal, closeModal, isModalOpen, toast, showScreen } from './screens.js';
+import { openModal, closeModal, isModalOpen, currentModal, toast, showScreen } from './screens.js';
 import * as render from './render.js';
 import { spriteEl } from './render.js';
 import { MapView, threatLabel } from './mapview.js';
@@ -339,7 +339,21 @@ function bindMap() {
 function attemptJump(node) {
   const r = run();
   if (r.phase !== 'map') return;
-  if (node.id === r.map.currentId) { ui.map.panTo(node); return; }
+  if (node.id === r.map.currentId) {
+    // Standing on it. If it has never been played, that is still a node you
+    // can enter: cancelling a brief with nowhere to be put back, or resuming a
+    // run saved at the moment of arrival, both leave the ship parked on an
+    // unplayed encounter. Panning to it was all this did, so the node looked
+    // as though it had resolved itself and was gone for the rest of the run.
+    if (!node.cleared && ENCOUNTER_TYPES[node.type]?.action) {
+      play('jump');
+      R.reopenNode(r);
+      syncPhase(true);
+      return;
+    }
+    ui.map.panTo(node);
+    return;
+  }
 
   const adjacent = U.canJumpTo(r.map, node.id);
   const route = adjacent ? null : U.routeThroughCleared(r.map, node.id);
@@ -741,14 +755,23 @@ function openShop() {
         : el('p.modal-text.flavour', { text: 'Your hold is empty.' }));
 
     openModal({
+      id: 'shop',
       title: r.encounter?.name || 'Trading Post',
       dismissable: false,
       body,
       wide: true,
-      actions: [{
-        text: 'Undock', kind: 'primary',
-        onClick: () => { closeModal(); R.leaveShop(r); flushToasts(r); syncPhase(true); },
-      }],
+      actions: [
+        // Deciding what to buy means comparing it with what is already fitted,
+        // and the ship sheet used to be unreachable from here: you undocked,
+        // looked, and came back to a shop that had rerolled nothing but your
+        // memory of it. The sheet opens over the top and closing it returns
+        // you to the same stock.
+        { text: 'Ship', kind: 'ghost', onClick: () => openInventory() },
+        {
+          text: 'Undock', kind: 'primary',
+          onClick: () => { closeModal(); R.leaveShop(r); flushToasts(r); syncPhase(true); },
+        },
+      ],
     });
   };
   rebuild();
@@ -818,6 +841,9 @@ function openLevelUp() {
 // ---------------------------------------------------------------------------
 // Inventory
 // ---------------------------------------------------------------------------
+
+/** True while a trading post is what the ship sheet would return to. */
+function atShop() { return run()?.phase === 'shop'; }
 
 export function openInventory() {
   const r = run();
@@ -939,11 +965,21 @@ export function openInventory() {
             })))
           : el('p.modal-text.flavour', { text: 'Nothing stowed.' })));
 
+    // Whatever was underneath comes back: the map, or the trading post you
+    // opened this from. syncPhase re-runs the current phase, so the shop
+    // rebuilds with its stock and your credits intact.
+    const back = () => { renderTopbar(); syncPhase(true); };
     openModal({
+      id: 'ship',
       title: 'Ship',
       wide: true,
       body,
-      actions: [{ text: 'Close', kind: 'primary', onClick: () => { closeModal(); renderTopbar(); syncPhase(true); } }],
+      onDismiss: back,
+      actions: [{
+        text: atShop() ? 'Back to the Post' : 'Close',
+        kind: 'primary',
+        onClick: () => { closeModal(); back(); },
+      }],
     });
   };
   build();

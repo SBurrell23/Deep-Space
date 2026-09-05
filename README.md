@@ -130,6 +130,34 @@ everything it earned did not have an economy, it had a scoreboard.
 Every one of those numbers lives in `src/game/balance.js`, with the reasoning
 next to it, and can be re-measured or swept from `tests/`.
 
+**v3.3: the ship sheet opens over the trading post, and a stranded node is no longer lost.**
+
+Deciding what to buy means comparing it with what is already fitted, and the
+ship sheet was unreachable from a shop — you undocked, looked, and came back to
+stock that had rerolled nothing but your memory of it. It opens over the top
+now (button, `I` or `Tab`), and closing it — by button, by `Escape`, by
+`Tab` again — puts you back at the same post with the same stock and the same
+credits. Modals grew an identity and a dismiss hook to make that work, so
+`Escape` on a modal opened over another one now returns to what was underneath
+instead of dropping you on the map.
+
+And a bug with a wider blast radius than it looked. **You could be left parked
+on a node you had never fought, with no way back into it** — the map treats a
+click on the node you are standing on as a no-op, so the encounter read as
+though it had resolved itself and was gone for the rest of the run. Two ways
+in:
+
+* Cancelling a brief that has nowhere to put you back. `declineEncounter`
+  walks you to where you jumped from, and some briefs have no origin — a fight
+  an anomaly turned into, a later stage of the Master Fleet.
+* **Resuming a saved run.** This is the common one. A run is saved on every
+  jump, which happens *before* the brief is answered, and a restored run always
+  comes back standing on the map — so quitting at a brief and continuing later
+  left you on top of an encounter you could no longer enter.
+
+Clicking a node you are standing on now opens it, if it has never paid out. A
+cleared node stays travel-only, as it always was.
+
 **v3.2: you never fight the same ship twice in a run.**
 
 A duelist is something you *learn* — its tell, its rhythm, the gap in its wall

@@ -142,6 +142,34 @@ export function travelPath(run, path) {
   return last || { ok: false, reason: 'no route' };
 }
 
+/**
+ * Open the node you are already standing on.
+ *
+ * You can end up parked on an unplayed node in two ways, and until now both
+ * lost it for the rest of the run:
+ *
+ *   - Cancelling a brief that has nowhere to put you back. `declineEncounter`
+ *     walks you to `jumpOrigin`, and there are briefs that have none — a fight
+ *     an anomaly turned into, a later stage of the Master Fleet.
+ *   - Resuming a saved run. A run is saved the moment you arrive, before the
+ *     brief is answered, and `deserialize` puts you back on the map standing
+ *     exactly there.
+ *
+ * The map treats a click on your own node as a no-op, so in both cases the
+ * node could not be entered again and read as though it had resolved itself.
+ */
+export function reopenNode(run) {
+  if (run.phase !== 'map') return { ok: false, reason: 'not on the map' };
+  const node = U.currentNode(run.map);
+  if (!node) return { ok: false, reason: 'nowhere' };
+  if (U.isCleared(run.map, node.id)) return { ok: false, reason: 'already cleared' };
+  run.node = node;
+  // No origin: you did not jump here, so Cancel leaves you where you are —
+  // and clicking the node again is what gets you back in.
+  run.jumpOrigin = null;
+  return openNode(run, node);
+}
+
 function openNode(run, node) {
   const enc = getEncounter(node.encounterId);
   run.encounter = enc;

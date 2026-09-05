@@ -248,7 +248,21 @@ function bindGlobalInput() {
       if (state.run && screens.currentScreen() === 'game') { e.preventDefault(); gameui.openPauseMenu(); }
       return;
     }
-    if (screens.isModalOpen()) return;
+    if (screens.isModalOpen()) {
+      // The trading post is the one modal you are meant to be able to look
+      // past — deciding what to buy means comparing it with what is already
+      // fitted — so the ship key opens the sheet over it, and closes it again.
+      if (e.code === 'KeyI' || e.code === 'Tab') {
+        const open = screens.currentModal();
+        if (open === 'shop') { e.preventDefault(); gameui.openInventory(); }
+        else if (open === 'ship' && state.run?.phase === 'shop') {
+          e.preventDefault();
+          screens.closeModal();
+          gameui.syncPhase(true);
+        }
+      }
+      return;
+    }
 
     if (screens.currentScreen() === 'game' && state.run) {
       if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); gameui.openInventory(); }
